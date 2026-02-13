@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase";
 import SupplierNav from "@/components/SupplierNav";
 import { MUSIC_GENRES, VIBE_OPTIONS, VENUE_CATEGORIES, VENUE_TYPES, VENUE_TYPE_LABELS, VENUE_CATEGORY_LABELS } from "@/lib/types";
 import type { VenueType, VenueCategory, PriceTier, TaskType, RewardType, ExpiryType } from "@/lib/types";
@@ -109,6 +110,9 @@ export default function CreateEventPage() {
     // ── Gallery ──
     const [description, setDescription] = useState("");
 
+    // ── Loading state ──
+    const [saving, setSaving] = useState(false);
+
     // ── Toggle helpers ──
     const toggleItem = (arr: string[], item: string, setter: (v: string[]) => void) => {
         setter(arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item]);
@@ -161,17 +165,184 @@ export default function CreateEventPage() {
         setRewards(updated);
     };
 
-    const handleSave = (publish: boolean) => {
-        // For MVP — just log and navigate back
-        console.log("[CreateEvent]", {
-            eventName, venueName, address, eventType,
-            startDate, startTime, endDate, endTime,
-            ageReq, venueCategory, selectedMusic, selectedVibes,
-            coverRange, priceTier, capacity, refundPolicy,
-            ticketTypes, tasksEnabled, tasks, rewardsEnabled, rewards,
-            description, publish,
-        });
-        router.push("/supplier/events");
+    const handleSave = async (publish: boolean) => {
+        setSaving(true);
+        console.log("[CreateEvent] Saving…", { publish });
+
+        try {
+            const supabase = createClient();
+
+            // 1. Get current user + supplier record
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                alert("You must be logged in to create an event.");
+                setSaving(false);
+                return;
+            }
+
+            const { data: supplier, error: supplierErr } = await supabase
+                .from("suppliers")
+                .select("id")
+                .eq("user_id", user.id)
+                .single();
+
+            if (supplierErr || !supplier) {
+                console.error("[CreateEvent] Supplier not found:", supplierErr);
+                alert("Could not find your supplier profile.");
+                setSaving(false);
+                return;
+            }
+
+            // 2. Get-or-create venue
+            let venueId: string | null = null;
+
+            if (venueName && address) {
+                // Check if venue already exists for this supplier
+                const { data: existingVenue } = await supabase
+                    .from("venues")
+                    .select("id")
+                    .eq("supplier_id", supplier.id)
+                    .eq("name", venueName)
+                    .maybeSingle();
+
+                if (existingVenue) {
+                    venueId = existingVenue.id;
+                    console.log("[CreateEvent] Using existing venue:", venueId);
+                } else {
+                    // Create new venue — use Toronto center as default coords
+                    // (In production, use Google Places autocomplete for real coords)
+                    const { data: newVenue, error: venueError } = await supabase
+                        .from("venues")
+                        .insert({
+                            supplier_id: supplier.id,
+                            name: venueName,
+                            address: address,
+                            latitude: 43.6532,  // Default Toronto — override with real geocoding
+                            longitude: -79.3832,
+                            venue_type: eventType,
+                            venue_category: venueCategory,
+                            music_types: selectedMusic,
+                            vibes: selectedVibes,
+                            age_range_min: parseInt(ageReq) || 19,
+                            capacity: capacity ? parseInt(capacity) : null,
+                        })
+                        .select("id")
+                        .single();
+
+                    if (venueError) {
+                        console.error("[CreateEvent] Error creating venue:", venueError);
+                        alert("Error creating venue: " + venueError.message);
+                        setSaving(false);
+                        return;
+                    }
+                    venueId = newVenue.id;
+                    console.log("[CreateEvent] Created new venue:", venueId);
+                }
+            }
+
+            // 3. Build event date/time strings
+            const eventDate = startDate && startTime
+                ? new Date(`${startDate}T${startTime}`).toISOString()
+                : new Date().toISOString();
+            const eventEndDate = endDate && endTime
+                ? new Date(`${endDate}T${endTime}`).toISOString()
+                : endDate
+                    ? new Date(`${endDate}T23:59`).toISOString()
+                    : null;
+
+            // 4. Insert event
+            const { data: newEvent, error: eventError } = await supabase
+                .from("events")
+                .insert({
+                    supplier_id: supplier.id,
+                    venue_id: venueId,
+                    name: eventName,
+                    description: description || null,
+                    event_date: eventDate,
+                    end_date: eventEndDate,
+                    age_requirement: parseInt(ageReq) || 19,
+                    music_types: selectedMusic,
+                    vibes: selectedVibes,
+                    cover_range: coverRange || null,
+                    price_tier: priceTier,
+                    capacity: capacity ? parseInt(capacity) : null,
+                    status: publish ? "published" : "draft",
+                    checkin_qr_secret: crypto.randomUUID(),
+                    tasks_enabled: tasksEnabled,
+                    rewards_enabled: rewardsEnabled,
+                    refund_policy: refundPolicy === "custom" ? customRefundPolicy : refundPolicy,
+                    venue_category: venueCategory,
+                })
+                .select("id")
+                .single();
+
+            if (eventError) {
+                console.error("[CreateEvent] Error creating event:", eventError);
+                alert("Error creating event: " + eventError.message);
+                setSaving(false);
+                return;
+            }
+
+            console.log("[CreateEvent] Created event:", newEvent.id);
+
+            // 5. Insert tasks
+            if (tasksEnabled && tasks.length > 0) {
+                const { error: tasksError } = await supabase.from("tasks").insert(
+                    tasks.map((t) => ({
+                        event_id: newEvent.id,
+                        task_type: t.task_type,
+                        xp_value: t.xp_value,
+                        early_checkin_time: t.task_type === "early_checkin" ? t.early_checkin_time : null,
+                    }))
+                );
+                if (tasksError) console.error("[CreateEvent] Tasks error:", tasksError);
+            }
+
+            // 6. Insert rewards
+            if (rewardsEnabled && rewards.length > 0) {
+                const { error: rewardsError } = await supabase.from("rewards").insert(
+                    rewards.map((r) => ({
+                        event_id: newEvent.id,
+                        venue_id: venueId,
+                        name: r.name,
+                        reward_type: r.reward_type,
+                        description: r.description,
+                        min_level: r.min_level,
+                        expiry_type: r.expiry_type,
+                        expiry_date: r.expiry_type === "date_range" && r.expiry_date
+                            ? new Date(r.expiry_date).toISOString()
+                            : null,
+                        inventory_limit: r.inventory_limit ? parseInt(r.inventory_limit) : null,
+                        redemption_limit_per_user: r.redemption_limit_per_user,
+                    }))
+                );
+                if (rewardsError) console.error("[CreateEvent] Rewards error:", rewardsError);
+            }
+
+            // 7. Insert ticket types if applicable
+            if (eventType === "tickets" && ticketTypes.length > 0) {
+                const { error: ticketsError } = await supabase.from("ticket_types").insert(
+                    ticketTypes.map((tt) => ({
+                        event_id: newEvent.id,
+                        name: tt.name,
+                        price: parseFloat(tt.price) || 0,
+                        quantity: parseInt(tt.quantity) || 0,
+                        sales_start: tt.sales_start ? new Date(tt.sales_start).toISOString() : null,
+                        sales_end: tt.sales_end ? new Date(tt.sales_end).toISOString() : null,
+                        description: tt.description || null,
+                    }))
+                );
+                if (ticketsError) console.error("[CreateEvent] Tickets error:", ticketsError);
+            }
+
+            router.push("/supplier/events");
+
+        } catch (err) {
+            console.error("[CreateEvent] Unexpected error:", err);
+            alert("Unexpected error creating event. Check console for details.");
+        } finally {
+            setSaving(false);
+        }
     };
 
     // ── Input styles ──

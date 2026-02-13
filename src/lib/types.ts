@@ -146,6 +146,11 @@ export interface Venue {
     gallery_images?: string[] | null;
     gender_ratio?: { male: number; female: number } | null;
     created_at: string;
+    // Enriched fields (populated by home page)
+    supplier_id?: string | null;
+    supplier?: { id: string; business_name: string; verification_status: string } | null;
+    active_events?: VenueEvent[];
+    has_active_event?: boolean;
 }
 
 export interface VenueEvent {

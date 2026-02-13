@@ -16,12 +16,15 @@ interface CommentSectionProps {
     comments: Comment[];
     totalCount: number;
     previewCount?: number;
+    onComment?: (postId: string, commentText: string) => void;
 }
 
 export default function CommentSection({
+    postId,
     comments,
     totalCount,
     previewCount = 2,
+    onComment,
 }: CommentSectionProps) {
     const [newComment, setNewComment] = useState("");
     const [expanded, setExpanded] = useState(false);
@@ -30,9 +33,10 @@ export default function CommentSection({
 
     const handlePost = () => {
         if (!newComment.trim()) return;
-        console.log("[Soirée] New comment:", newComment.trim());
+        const text = newComment.trim();
+        console.log("[Soirée] New comment:", text);
+        if (onComment) onComment(postId, text);
         setNewComment("");
-        // TODO: Supabase insert
     };
 
     return (

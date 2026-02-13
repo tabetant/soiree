@@ -4,9 +4,9 @@
  * VenueMarker Component
  *
  * Renders a custom-styled marker on the map for a single venue.
- * Color-coded by crowd density:
- *   - Red/pink pulse = Busy (67-100%)
- *   - White = Quiet/Moderate
+ * Color-coded:
+ *   - Red pulsing = Active event happening NOW
+ *   - Density-based (pink/white) = No active event
  */
 
 import { AdvancedMarker, Pin } from "@vis.gl/react-google-maps";
@@ -19,8 +19,14 @@ interface VenueMarkerProps {
 }
 
 export default function VenueMarker({ venue, onSelect }: VenueMarkerProps) {
-    const densityColors = densityMarkerColor(venue.current_density);
-    const isBusy = venue.current_density > 66;
+    const hasActiveEvent = venue.has_active_event === true;
+
+    // Active event → red markers; otherwise density-based colors
+    const colors = hasActiveEvent
+        ? { bg: "#EF4444", border: "#DC2626" }
+        : densityMarkerColor(venue.current_density);
+
+    const glyphColor = hasActiveEvent ? "#fff" : venue.current_density > 66 ? "#fff" : "#333";
     const typeGlyph = MARKER_COLORS[venue.venue_type]?.glyph || "📍";
 
     return (
@@ -29,11 +35,11 @@ export default function VenueMarker({ venue, onSelect }: VenueMarkerProps) {
             title={venue.name}
             onClick={() => onSelect(venue.id)}
         >
-            <div className={isBusy ? "animate-pulse" : ""}>
+            <div className={hasActiveEvent ? "animate-pulse" : ""}>
                 <Pin
-                    background={densityColors.bg}
-                    borderColor={densityColors.border}
-                    glyphColor={isBusy ? "#fff" : "#333"}
+                    background={colors.bg}
+                    borderColor={colors.border}
+                    glyphColor={glyphColor}
                 >
                     <span className="text-sm">{typeGlyph}</span>
                 </Pin>

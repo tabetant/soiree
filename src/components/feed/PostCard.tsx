@@ -19,9 +19,11 @@ import CommentSection from "./CommentSection";
 interface PostCardProps {
     post: Post;
     comments: Comment[];
+    onLike?: (postId: string, isCurrentlyLiked: boolean) => void;
+    onComment?: (postId: string, commentText: string) => void;
 }
 
-export default function PostCard({ post, comments }: PostCardProps) {
+export default function PostCard({ post, comments, onLike, onComment }: PostCardProps) {
     const [liked, setLiked] = useState(post.is_liked_by_user);
     const [likeCount, setLikeCount] = useState(post.like_count);
     const [saved, setSaved] = useState(false);
@@ -33,12 +35,11 @@ export default function PostCard({ post, comments }: PostCardProps) {
     const hue = stringToHue(post.user.username);
 
     const handleLike = useCallback(() => {
-        setLiked((prev) => {
-            setLikeCount((c) => (prev ? c - 1 : c + 1));
-            return !prev;
-        });
-        // TODO: Supabase insert/delete
-    }, []);
+        const wasLiked = liked;
+        setLiked(!wasLiked);
+        setLikeCount((c) => wasLiked ? c - 1 : c + 1);
+        if (onLike) onLike(post.id, wasLiked);
+    }, [liked, onLike, post.id]);
 
     const handleDoubleTap = useCallback(() => {
         if (!liked) {
@@ -129,24 +130,34 @@ export default function PostCard({ post, comments }: PostCardProps) {
                 onDoubleClick={handleDoubleTap}
             >
                 {/* Current image */}
-                <div
-                    className="h-full w-full"
-                    style={{
-                        background: post.image_urls[currentImage].startsWith("linear-gradient")
-                            ? post.image_urls[currentImage]
-                            : undefined,
-                    }}
-                >
-                    {!post.image_urls[currentImage].startsWith("linear-gradient") && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                            src={post.image_urls[currentImage]}
-                            alt={`Post by ${post.user.username}`}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                        />
-                    )}
-                </div>
+                {(() => {
+                    const currentUrl = post.image_urls?.[currentImage] || "";
+                    const isGradient = currentUrl.startsWith("linear-gradient");
+                    const isValidImageUrl = currentUrl && !isGradient && (currentUrl.startsWith("http") || currentUrl.startsWith("/") || currentUrl.startsWith("data:"));
+
+                    return (
+                        <div
+                            className="h-full w-full"
+                            style={{
+                                background: isGradient
+                                    ? currentUrl
+                                    : !isValidImageUrl
+                                        ? "linear-gradient(135deg, #6d28d9 0%, #ec4899 100%)"
+                                        : undefined,
+                            }}
+                        >
+                            {isValidImageUrl && (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                    src={currentUrl}
+                                    alt={`Post by ${post.user.username}`}
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                />
+                            )}
+                        </div>
+                    );
+                })()}
 
                 {/* Double-tap like animation */}
                 {showLikeAnim && (
@@ -165,8 +176,8 @@ export default function PostCard({ post, comments }: PostCardProps) {
                                     key={i}
                                     onClick={() => setCurrentImage(i)}
                                     className={`h-1.5 rounded-full transition-all duration-200 ${i === currentImage
-                                            ? "w-4 bg-white"
-                                            : "w-1.5 bg-white/40"
+                                        ? "w-4 bg-white"
+                                        : "w-1.5 bg-white/40"
                                         }`}
                                     aria-label={`Image ${i + 1}`}
                                 />
@@ -293,6 +304,7 @@ export default function PostCard({ post, comments }: PostCardProps) {
                 postId={post.id}
                 comments={comments}
                 totalCount={post.comment_count}
+                onComment={onComment}
             />
         </article>
     );

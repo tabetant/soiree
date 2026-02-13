@@ -213,12 +213,19 @@ export default function EventDetailSheet({ venueId, onClose, venues: parentVenue
                                     <h2 className="text-2xl font-bold text-foreground leading-tight">
                                         {venue.name}
                                     </h2>
-                                    <span
-                                        className="shrink-0 mt-1 rounded-full px-3 py-1 text-xs font-semibold text-white"
-                                        style={{ backgroundColor: colors.bg }}
-                                    >
-                                        {VENUE_TYPE_LABELS[venue.venue_type]}
-                                    </span>
+                                    <div className="flex flex-col items-end gap-1 shrink-0 mt-1">
+                                        <span
+                                            className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                                            style={{ backgroundColor: colors.bg }}
+                                        >
+                                            {VENUE_TYPE_LABELS[venue.venue_type]}
+                                        </span>
+                                        {venue.has_active_event && (
+                                            <span className="rounded-full px-3 py-1 text-xs font-semibold text-white bg-red-600 animate-pulse">
+                                                🔴 Live Event
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                                 <button
                                     onClick={handleDirections}
@@ -228,7 +235,62 @@ export default function EventDetailSheet({ venueId, onClose, venues: parentVenue
                                     <span className="underline underline-offset-2">{venue.address}</span>
                                     <span className="text-foreground-muted text-xs">→ Directions</span>
                                 </button>
+                                {venue.supplier && (
+                                    <p className="mt-1 text-xs text-foreground-muted">
+                                        Operated by {venue.supplier.business_name}
+                                    </p>
+                                )}
                             </div>
+
+                            {/* ── 1b. Active Events ──────────────────────── */}
+                            {venue.active_events && venue.active_events.length > 0 && (
+                                <div>
+                                    <h3 className="text-xs font-semibold text-foreground-muted uppercase tracking-wider mb-2.5">
+                                        🎉 Events at this venue
+                                    </h3>
+                                    <div className="space-y-2">
+                                        {venue.active_events.map((event) => {
+                                            const isNow =
+                                                new Date(event.event_date) <= new Date() &&
+                                                new Date(event.end_date || event.event_date) >= new Date();
+                                            return (
+                                                <div
+                                                    key={event.id}
+                                                    className={`rounded-xl border p-3.5 ${isNow
+                                                            ? "border-red-500/40 bg-red-500/10"
+                                                            : "border-border bg-surface"
+                                                        }`}
+                                                >
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-foreground">
+                                                                {event.name}
+                                                            </p>
+                                                            <p className="text-xs text-foreground-muted mt-0.5">
+                                                                {new Date(event.event_date).toLocaleDateString()} •{" "}
+                                                                {new Date(event.event_date).toLocaleTimeString([], {
+                                                                    hour: "2-digit",
+                                                                    minute: "2-digit",
+                                                                })}
+                                                            </p>
+                                                        </div>
+                                                        {isNow && (
+                                                            <span className="shrink-0 rounded-full bg-red-600 text-white text-[10px] font-bold px-2 py-0.5">
+                                                                NOW
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {event.description && (
+                                                        <p className="text-xs text-foreground-muted mt-1.5 line-clamp-2">
+                                                            {event.description}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* ── 2. Key Stats Grid ──────────────────────── */}
                             <div className="grid grid-cols-2 gap-2.5">
@@ -293,9 +355,9 @@ export default function EventDetailSheet({ venueId, onClose, venues: parentVenue
                                         Music
                                     </h3>
                                     <div className="flex flex-wrap gap-1.5">
-                                        {venue.music_types.map((m) => (
+                                        {venue.music_types?.map((m, i) => (
                                             <span
-                                                key={m}
+                                                key={`music-${i}`}
                                                 className="rounded-full bg-accent-surface px-3 py-1 text-xs font-medium text-accent"
                                             >
                                                 🎵 {m}
@@ -308,9 +370,9 @@ export default function EventDetailSheet({ venueId, onClose, venues: parentVenue
                                         Vibe
                                     </h3>
                                     <div className="flex flex-wrap gap-1.5">
-                                        {venue.vibes.map((v) => (
+                                        {venue.vibes?.map((v, i) => (
                                             <span
-                                                key={v}
+                                                key={`vibe-${i}`}
                                                 className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-foreground-muted border border-border"
                                             >
                                                 ✨ {v}

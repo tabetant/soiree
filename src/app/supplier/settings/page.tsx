@@ -5,26 +5,33 @@
  *
  * Business profile, venue management, plan info,
  * notification toggles, and sign out.
+ *
+ * Uses real Supabase data when dev mode is OFF.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import SupplierNav from "@/components/SupplierNav";
 import { createClient } from "@/lib/supabase";
+import { isDevMode } from "@/lib/devMode";
 import { MOCK_SUPPLIER } from "@/lib/supplierMockData";
+import type { Supplier } from "@/lib/types";
 
 export default function SupplierSettingsPage() {
     const router = useRouter();
-    const supplier = MOCK_SUPPLIER;
 
-    // ── Business Profile State ──
-    const [businessName, setBusinessName] = useState(supplier.business_name);
-    const [contactEmail, setContactEmail] = useState(supplier.contact_email || "");
-    const [phone, setPhone] = useState(supplier.phone || "");
-    const [website, setWebsite] = useState(supplier.website || "");
-    const [instagram, setInstagram] = useState(supplier.social_links?.instagram || "");
-    const [facebook, setFacebook] = useState(supplier.social_links?.facebook || "");
-    const [tiktok, setTiktok] = useState(supplier.social_links?.tiktok || "");
+    // ── State ──
+    const [loading, setLoading] = useState(true);
+    const [supplier, setSupplier] = useState<Supplier | null>(null);
+    const [venues, setVenues] = useState<{ id: string; name: string; address: string; venue_category: string; capacity: number | null }[]>([]);
+
+    const [businessName, setBusinessName] = useState("");
+    const [contactEmail, setContactEmail] = useState("");
+    const [phone, setPhone] = useState("");
+    const [website, setWebsite] = useState("");
+    const [instagram, setInstagram] = useState("");
+    const [facebook, setFacebook] = useState("");
+    const [tiktok, setTiktok] = useState("");
 
     // ── Notifications ──
     const [notifyTicketSale, setNotifyTicketSale] = useState(true);
@@ -35,14 +42,121 @@ export default function SupplierSettingsPage() {
     const [saved, setSaved] = useState(false);
     const [signingOut, setSigningOut] = useState(false);
 
-    const handleSave = () => {
+    // ── Load data ──
+    useEffect(() => {
+        async function loadData() {
+            // Dev mode: use mock data
+            if (isDevMode()) {
+                console.log("[Settings] Dev mode ON → using mock data");
+                populateFromSupplier(MOCK_SUPPLIER);
+                setSupplier(MOCK_SUPPLIER);
+                setLoading(false);
+                return;
+            }
+
+            console.log("[Settings] Dev mode OFF → fetching from Supabase");
+            try {
+                const supabase = createClient();
+                const { data: { user }, error: authError } = await supabase.auth.getUser();
+                if (authError || !user) {
+                    router.push("/onboarding/step-1-auth");
+                    return;
+                }
+
+                // Get supplier record
+                const { data: sup, error: supError } = await supabase
+                    .from("suppliers")
+                    .select("*")
+                    .eq("user_id", user.id)
+                    .single();
+
+                if (supError || !sup) {
+                    console.error("[Settings] Supplier not found:", supError);
+                    setLoading(false);
+                    return;
+                }
+
+                const supplierData = sup as Supplier;
+                setSupplier(supplierData);
+                populateFromSupplier(supplierData);
+
+                // Get profile email
+                const { data: profile } = await supabase
+                    .from("profiles")
+                    .select("email")
+                    .eq("id", user.id)
+                    .single();
+
+                if (profile?.email) setContactEmail(profile.email);
+
+                // Get venues
+                const { data: venueData } = await supabase
+                    .from("venues")
+                    .select("id, name, address, venue_category, capacity")
+                    .eq("supplier_id", supplierData.id);
+
+                if (venueData) setVenues(venueData);
+
+                console.log("[Settings] Loaded supplier:", supplierData.business_name, "with", venueData?.length || 0, "venues");
+            } catch (err) {
+                console.error("[Settings] Error loading data:", err);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        loadData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    function populateFromSupplier(s: Supplier) {
+        setBusinessName(s.business_name || "");
+        setContactEmail(s.contact_email || "");
+        setPhone(s.phone || "");
+        setWebsite(s.website || "");
+        setInstagram(s.social_links?.instagram || "");
+        setFacebook(s.social_links?.facebook || "");
+        setTiktok(s.social_links?.tiktok || "");
+    }
+
+    // ── Save ──
+    const handleSave = async () => {
+        if (!supplier) return;
         setSaving(true);
-        // Mock save
-        setTimeout(() => {
-            setSaving(false);
+
+        if (isDevMode()) {
+            // Mock save
+            setTimeout(() => {
+                setSaving(false);
+                setSaved(true);
+                setTimeout(() => setSaved(false), 2000);
+            }, 600);
+            return;
+        }
+
+        try {
+            const supabase = createClient();
+            const { error } = await supabase
+                .from("suppliers")
+                .update({
+                    business_name: businessName,
+                    phone,
+                    website,
+                    social_links: { instagram, facebook, tiktok },
+                })
+                .eq("id", supplier.id);
+
+            if (error) throw error;
+
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
-        }, 600);
+            console.log("[Settings] Saved successfully");
+        } catch (err) {
+            console.error("[Settings] Save error:", err);
+            alert("Error saving settings");
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleSignOut = async () => {
@@ -71,6 +185,18 @@ export default function SupplierSettingsPage() {
         </button>
     );
 
+    if (loading) {
+        return (
+            <div className="min-h-dvh bg-background pb-24 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-float text-4xl mb-3">🌙</div>
+                    <p className="text-sm text-foreground-muted">Loading settings…</p>
+                </div>
+                <SupplierNav />
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-dvh bg-background pb-24">
             {/* Header */}
@@ -88,15 +214,15 @@ export default function SupplierSettingsPage() {
                     </div>
                     <div>
                         <label className={labelClass}>Contact Email</label>
-                        <input type="email" className={inputClass} value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+                        <input type="email" className={`${inputClass} opacity-60 cursor-not-allowed`} value={contactEmail} readOnly />
                     </div>
                     <div>
                         <label className={labelClass}>Phone</label>
-                        <input type="tel" className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+                        <input type="tel" className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (416) 555-1234" />
                     </div>
                     <div>
                         <label className={labelClass}>Website</label>
-                        <input type="url" className={inputClass} value={website} onChange={(e) => setWebsite(e.target.value)} />
+                        <input type="url" className={inputClass} value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://yourwebsite.com" />
                     </div>
                 </div>
 
@@ -117,23 +243,47 @@ export default function SupplierSettingsPage() {
                     </div>
                 </div>
 
+                {/* ── Venue Locations ──────────────── */}
+                {sectionTitle("Venue Locations")}
+                <div className="rounded-2xl border border-border bg-surface p-4">
+                    {venues.length === 0 ? (
+                        <p className="text-sm text-foreground-muted text-center py-3">
+                            No venues yet. Create events to register venues.
+                        </p>
+                    ) : (
+                        <div className="space-y-2">
+                            {venues.map((v) => (
+                                <div key={v.id} className="rounded-xl border border-border bg-background p-3 flex justify-between items-start">
+                                    <div>
+                                        <p className="text-sm font-semibold text-foreground">{v.name}</p>
+                                        <p className="text-xs text-foreground-muted mt-0.5">{v.address}</p>
+                                        <p className="text-xs text-foreground-muted/60 mt-0.5 capitalize">
+                                            {v.venue_category} • Capacity: {v.capacity || "Not set"}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
                 {/* ── Subscription Plan ─────────────── */}
                 {sectionTitle("Subscription Plan")}
                 <div className="rounded-2xl border border-border bg-surface p-4">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm font-semibold text-foreground capitalize">
-                                {supplier.plan} Plan
+                                {supplier?.plan || "basic"} Plan
                             </p>
                             <p className="text-xs text-foreground-muted mt-0.5">
-                                {supplier.plan === "pro" ? "Unlimited events, analytics, door mode" :
-                                    supplier.plan === "tickets" ? "Full ticketing + Stripe Connect" :
+                                {supplier?.plan === "pro" ? "Unlimited events, analytics, door mode" :
+                                    supplier?.plan === "tickets" ? "Full ticketing + Stripe Connect" :
                                         "Basic listing features"}
                             </p>
                         </div>
-                        <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${supplier.plan === "pro" ? "bg-accent/20 text-accent" : "bg-surface-hover text-foreground-muted"
+                        <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${supplier?.plan === "pro" ? "bg-accent/20 text-accent" : "bg-surface-hover text-foreground-muted"
                             }`}>
-                            {supplier.plan}
+                            {supplier?.plan || "basic"}
                         </span>
                     </div>
                     <button className="w-full mt-3 py-2 rounded-xl border border-border text-xs font-medium text-foreground-muted hover:text-foreground transition-colors">
@@ -148,15 +298,15 @@ export default function SupplierSettingsPage() {
                         <div>
                             <p className="text-sm font-semibold text-foreground">Stripe Connect</p>
                             <p className="text-xs text-foreground-muted mt-0.5">
-                                {supplier.stripe_connect_id ? "Connected" : "Not connected"}
+                                {supplier?.stripe_connect_id ? "Connected" : "Not connected"}
                             </p>
                         </div>
-                        <span className={`px-2 py-1 rounded-full text-[10px] font-medium ${supplier.stripe_connect_id ? "bg-green-500/15 text-green-400" : "bg-yellow-500/15 text-yellow-400"
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-medium ${supplier?.stripe_connect_id ? "bg-green-500/15 text-green-400" : "bg-yellow-500/15 text-yellow-400"
                             }`}>
-                            {supplier.stripe_connect_id ? "✓ Connected" : "Required for tickets"}
+                            {supplier?.stripe_connect_id ? "✓ Connected" : "Required for tickets"}
                         </span>
                     </div>
-                    {!supplier.stripe_connect_id && (
+                    {!supplier?.stripe_connect_id && (
                         <button className="w-full mt-3 py-2 rounded-xl bg-accent text-white text-xs font-semibold hover:bg-accent-glow transition-colors">
                             Connect Stripe
                         </button>
