@@ -481,4 +481,10 @@ export const ACTION_LABELS: Record<string, string> = {
     dismiss_flag: "Dismissed flag",
     action_flag: "Actioned flag",
     create_account: "Created account",
+    create_supplier: "Created supplier",
+    approve_application: "Approved application",
+    reject_application: "Rejected application",
+    event_published: "Published event",
+    supplier_application: "Supplier applied",
+    user_registered: "New user registered",
 };

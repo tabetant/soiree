@@ -5,6 +5,9 @@
  *   true  → returns mock data from adminMockData.ts
  *   false → fetches from Supabase
  *
+ * CRITICAL: When dev mode is OFF and a fetch fails, we return EMPTY data
+ * (not mock data) so the UI shows "no data" states.
+ *
  * All hooks return { data, loading, error, refetch }.
  */
 
@@ -40,46 +43,68 @@ interface UseDataResult<T> {
     refetch: () => void;
 }
 
+/**
+ * @param mockData  — used ONLY when isDevMode() returns true
+ * @param emptyData — default/empty data returned when dev mode is OFF (on error or initial)
+ * @param fetcher   — async function that queries Supabase
+ */
 function useData<T>(
     mockData: T,
+    emptyData: T,
     fetcher: () => Promise<T>,
 ): UseDataResult<T> {
-    const [data, setData] = useState<T>(mockData);
+    const devMode = isDevMode();
+    const [data, setData] = useState<T>(devMode ? mockData : emptyData);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const fetch = useCallback(async () => {
+    const doFetch = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
             if (isDevMode()) {
+                console.log("[useData] Dev mode ON → returning mock data");
                 setData(mockData);
             } else {
+                console.log("[useData] Dev mode OFF → fetching from Supabase…");
                 const result = await fetcher();
+                console.log("[useData] Fetched:", result);
                 setData(result);
             }
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : "Unknown error");
-            // Fall back to mock data on error
-            setData(mockData);
+            const msg = err instanceof Error ? err.message : "Unknown error";
+            console.error("[useData] Fetch error:", msg);
+            setError(msg);
+            // Do NOT fall back to mock data when dev mode is off
+            if (isDevMode()) {
+                setData(mockData);
+            } else {
+                setData(emptyData);
+            }
         } finally {
             setLoading(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    useEffect(() => { fetch(); }, [fetch]);
+    useEffect(() => { doFetch(); }, [doFetch]);
 
-    return { data, loading, error, refetch: fetch };
+    return { data, loading, error, refetch: doFetch };
 }
 
 /* ─── Admin Stats ────────────────────────────────────────── */
 
+const EMPTY_STATS: AdminStats = {
+    totalUsers: 0, usersChange: 0, totalSuppliers: 0,
+    suppliersPending: 0, suppliersApproved: 0, suppliersRejected: 0,
+    activeEvents: 0, totalCheckins7d: 0, checkinsChange: 0,
+    pendingFlags: 0, flaggedEvents: 0, flaggedUsers: 0,
+};
+
 export function useAdminStats(): UseDataResult<AdminStats> {
-    return useData<AdminStats>(getAdminStats(), async () => {
+    return useData<AdminStats>(getAdminStats(), EMPTY_STATS, async () => {
         const supabase = createClient();
 
-        // Parallel queries
         const [profilesRes, suppliersRes, eventsRes, flagsRes, checkinsRes] = await Promise.all([
             supabase.from("profiles").select("id", { count: "exact", head: true }),
             supabase.from("suppliers").select("id, verification_status"),
@@ -112,7 +137,7 @@ export function useAdminStats(): UseDataResult<AdminStats> {
 /* ─── Suppliers ──────────────────────────────────────────── */
 
 export function useAdminSuppliers(): UseDataResult<AdminSupplier[]> {
-    return useData<AdminSupplier[]>(MOCK_ADMIN_SUPPLIERS, async () => {
+    return useData<AdminSupplier[]>(MOCK_ADMIN_SUPPLIERS, [], async () => {
         const supabase = createClient();
         const { data, error } = await supabase
             .from("suppliers")
@@ -139,7 +164,7 @@ export function useAdminSuppliers(): UseDataResult<AdminSupplier[]> {
 
 export function useAdminSupplier(id: string): UseDataResult<AdminSupplier | null> {
     const mock = MOCK_ADMIN_SUPPLIERS.find(s => s.id === id) || null;
-    return useData<AdminSupplier | null>(mock, async () => {
+    return useData<AdminSupplier | null>(mock, null, async () => {
         const supabase = createClient();
         const { data, error } = await supabase
             .from("suppliers")
@@ -150,7 +175,6 @@ export function useAdminSupplier(id: string): UseDataResult<AdminSupplier | null
         if (error) throw error;
         if (!data) return null;
 
-        // Get venue + event counts
         const [venueRes, eventRes] = await Promise.all([
             supabase.from("venues").select("id", { count: "exact", head: true }).eq("supplier_id", id),
             supabase.from("events").select("id", { count: "exact", head: true }).eq("supplier_id", id),
@@ -169,7 +193,7 @@ export function useAdminSupplier(id: string): UseDataResult<AdminSupplier | null
 /* ─── Events ─────────────────────────────────────────────── */
 
 export function useAdminEvents(): UseDataResult<SupplierEvent[]> {
-    return useData<SupplierEvent[]>(MOCK_ADMIN_EVENTS, async () => {
+    return useData<SupplierEvent[]>(MOCK_ADMIN_EVENTS, [], async () => {
         const supabase = createClient();
         const { data, error } = await supabase
             .from("events")
@@ -178,7 +202,7 @@ export function useAdminEvents(): UseDataResult<SupplierEvent[]> {
                 venue:venues(name),
                 supplier:suppliers(business_name),
                 attendances:attendances(count),
-                flags:flags(count)
+                event_flags:flags(count)
             `)
             .order("event_date", { ascending: false });
 
@@ -189,14 +213,14 @@ export function useAdminEvents(): UseDataResult<SupplierEvent[]> {
             venue_name: e.venue?.name || e.venue_name,
             supplier_name: e.supplier?.business_name,
             checkins: e.attendances?.[0]?.count || 0,
-            flag_count: e.flags?.[0]?.count || 0,
+            flag_count: e.event_flags?.[0]?.count || 0,
         })) as SupplierEvent[];
     });
 }
 
 export function useAdminEvent(id: string): UseDataResult<SupplierEvent | null> {
     const mock = MOCK_ADMIN_EVENTS.find(e => e.id === id) || null;
-    return useData<SupplierEvent | null>(mock, async () => {
+    return useData<SupplierEvent | null>(mock, null, async () => {
         const supabase = createClient();
         const { data, error } = await supabase
             .from("events")
@@ -212,7 +236,7 @@ export function useAdminEvent(id: string): UseDataResult<SupplierEvent | null> {
 /* ─── Users ──────────────────────────────────────────────── */
 
 export function useAdminUsers(): UseDataResult<AdminUser[]> {
-    return useData<AdminUser[]>(MOCK_ADMIN_USERS, async () => {
+    return useData<AdminUser[]>(MOCK_ADMIN_USERS, [], async () => {
         const supabase = createClient();
         const { data, error } = await supabase
             .from("profiles")
@@ -247,7 +271,7 @@ export function useAdminUsers(): UseDataResult<AdminUser[]> {
 
 export function useAdminUser(id: string): UseDataResult<AdminUser | null> {
     const mock = MOCK_ADMIN_USERS.find(u => u.id === id) || null;
-    return useData<AdminUser | null>(mock, async () => {
+    return useData<AdminUser | null>(mock, null, async () => {
         const supabase = createClient();
         const { data, error } = await supabase
             .from("profiles")
@@ -280,7 +304,7 @@ export function useAdminUser(id: string): UseDataResult<AdminUser | null> {
 /* ─── Actions & Flags ────────────────────────────────────── */
 
 export function useAdminActions(): UseDataResult<AdminAction[]> {
-    return useData<AdminAction[]>(MOCK_ADMIN_ACTIONS, async () => {
+    return useData<AdminAction[]>(MOCK_ADMIN_ACTIONS, [], async () => {
         const supabase = createClient();
 
         // Fetch admin actions with admin profile names
@@ -297,7 +321,6 @@ export function useAdminActions(): UseDataResult<AdminAction[]> {
 
         const activities: AdminAction[] = [];
 
-        // Map admin actions
         (adminActions || []).forEach(action => {
             activities.push({
                 id: action.id,
@@ -312,7 +335,7 @@ export function useAdminActions(): UseDataResult<AdminAction[]> {
             });
         });
 
-        // Fetch recent event publications
+        // Recent event publications
         const { data: recentEvents } = await supabase
             .from("events")
             .select("id, name, created_at, supplier:suppliers(business_name)")
@@ -333,7 +356,7 @@ export function useAdminActions(): UseDataResult<AdminAction[]> {
             });
         });
 
-        // Fetch recent supplier applications
+        // Recent supplier applications
         const { data: applications } = await supabase
             .from("supplier_applications")
             .select("id, business_name, email, status, created_at")
@@ -353,7 +376,28 @@ export function useAdminActions(): UseDataResult<AdminAction[]> {
             });
         });
 
-        // Sort by timestamp (most recent first)
+        // Recent user registrations
+        const { data: newUsers } = await supabase
+            .from("profiles")
+            .select("id, username, created_at")
+            .eq("role", "consumer")
+            .order("created_at", { ascending: false })
+            .limit(10);
+
+        (newUsers || []).forEach(user => {
+            activities.push({
+                id: `user-${user.id}`,
+                admin_id: "",
+                admin_name: `@${user.username || "user"}`,
+                action_type: "user_registered",
+                target_type: "user",
+                target_id: user.id,
+                target_name: user.username || "New user",
+                created_at: user.created_at,
+            });
+        });
+
+        // Sort by timestamp
         activities.sort((a, b) =>
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
@@ -363,7 +407,7 @@ export function useAdminActions(): UseDataResult<AdminAction[]> {
 }
 
 export function useAdminFlags(): UseDataResult<Flag[]> {
-    return useData<Flag[]>(MOCK_FLAGS, async () => {
+    return useData<Flag[]>(MOCK_FLAGS, [], async () => {
         const supabase = createClient();
         const { data, error } = await supabase
             .from("flags")
@@ -391,14 +435,13 @@ export function useAdminFlags(): UseDataResult<Flag[]> {
 /* ─── Growth Data (30-day rollup) ────────────────────────── */
 
 export function useGrowthData(): UseDataResult<PlatformGrowthPoint[]> {
-    return useData<PlatformGrowthPoint[]>(MOCK_GROWTH_DATA, async () => {
+    return useData<PlatformGrowthPoint[]>(MOCK_GROWTH_DATA, [], async () => {
         const supabase = createClient();
 
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const since = thirtyDaysAgo.toISOString();
 
-        // Build date array
         const dates: string[] = [];
         for (let i = 29; i >= 0; i--) {
             const d = new Date();
@@ -406,7 +449,6 @@ export function useGrowthData(): UseDataResult<PlatformGrowthPoint[]> {
             dates.push(d.toISOString().split("T")[0]);
         }
 
-        // Parallel fetches
         const [usersRes, suppliersRes, checkinsRes, eventsRes] = await Promise.all([
             supabase.from("profiles").select("created_at").eq("role", "consumer").gte("created_at", since),
             supabase.from("suppliers").select("created_at").gte("created_at", since),
@@ -432,14 +474,13 @@ export function useGrowthData(): UseDataResult<PlatformGrowthPoint[]> {
 /* ─── Venue Analytics (top venues this week) ─────────────── */
 
 export function useVenueAnalytics(): UseDataResult<typeof MOCK_VENUE_ANALYTICS> {
-    return useData(MOCK_VENUE_ANALYTICS, async () => {
+    return useData(MOCK_VENUE_ANALYTICS, [], async () => {
         const supabase = createClient();
 
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         const since = sevenDaysAgo.toISOString();
 
-        // Get all venues with their supplier
         const { data: venues, error: venueError } = await supabase
             .from("venues")
             .select("id, name, supplier:suppliers(business_name)");
@@ -447,22 +488,18 @@ export function useVenueAnalytics(): UseDataResult<typeof MOCK_VENUE_ANALYTICS> 
         if (venueError) throw venueError;
         if (!venues || venues.length === 0) return [];
 
-        // Get check-ins in the last 7 days
         const { data: checkIns } = await supabase
             .from("attendances")
             .select("venue_id")
             .gte("checked_in_at", since);
 
-        // Get event analytics in the last 7 days
         const { data: analytics } = await supabase
             .from("event_analytics")
             .select("event_id, event_opens, saves, event:events(venue_id)")
             .gte("date", sevenDaysAgo.toISOString().split("T")[0]);
 
-        // Aggregate by venue
         const venueStats = new Map<string, { checkins: number; opens: number; saves: number }>();
 
-        // Count check-ins
         (checkIns || []).forEach(c => {
             if (!c.venue_id) return;
             const current = venueStats.get(c.venue_id) || { checkins: 0, opens: 0, saves: 0 };
@@ -470,7 +507,6 @@ export function useVenueAnalytics(): UseDataResult<typeof MOCK_VENUE_ANALYTICS> 
             venueStats.set(c.venue_id, current);
         });
 
-        // Add event opens + saves
         (analytics || []).forEach(a => {
             const venueId = (a.event as { venue_id?: string })?.venue_id;
             if (!venueId) return;
@@ -480,7 +516,6 @@ export function useVenueAnalytics(): UseDataResult<typeof MOCK_VENUE_ANALYTICS> 
             venueStats.set(venueId, current);
         });
 
-        // Build result sorted by check-ins
         return venues
             .map(v => {
                 const stats = venueStats.get(v.id) || { checkins: 0, opens: 0, saves: 0 };
@@ -495,5 +530,33 @@ export function useVenueAnalytics(): UseDataResult<typeof MOCK_VENUE_ANALYTICS> 
             })
             .sort((a, b) => b.checkins - a.checkins)
             .slice(0, 5);
+    });
+}
+
+/* ─── Supplier Applications ──────────────────────────────── */
+
+export interface SupplierApplication {
+    id: string;
+    email: string;
+    business_name: string;
+    venue_address: string;
+    music_types: string[];
+    vibe_types: string[];
+    status: "pending" | "approved" | "rejected";
+    notes?: string;
+    created_at: string;
+}
+
+export function useAdminApplications(): UseDataResult<SupplierApplication[]> {
+    return useData<SupplierApplication[]>([], [], async () => {
+        const supabase = createClient();
+        const { data, error } = await supabase
+            .from("supplier_applications")
+            .select("*")
+            .eq("status", "pending")
+            .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        return (data || []) as SupplierApplication[];
     });
 }
