@@ -25,9 +25,7 @@ import FilterPills from "@/components/map/FilterPills";
 import FilterModal from "@/components/map/FilterModal";
 import EventDetailSheet from "@/components/map/EventDetailSheet";
 import BottomNav from "@/components/BottomNav";
-import { MOCK_VENUES } from "@/lib/mockData";
 
-import { isDevMode } from "@/lib/devMode";
 
 export default function HomePage() {
     const router = useRouter();
@@ -44,15 +42,7 @@ export default function HomePage() {
 
     // ── Load venues + events from Supabase ─────────────────────
     const loadMapData = useCallback(async () => {
-        // Dev mode: always use mock data
-        if (isDevMode()) {
-            console.log("[Home] Dev mode ON → using mock venues");
-            setVenues(MOCK_VENUES);
-            setLoading(false);
-            return;
-        }
-
-        console.log("[Home] Fetching real venues + events from Supabase…");
+        console.log("[Home] Fetching venues + events from Supabase…");
         try {
             const supabase = createClient();
 
@@ -208,7 +198,7 @@ export default function HomePage() {
     }
 
     // Empty state when no venues exist
-    if (!isDevMode() && venues.length === 0) {
+    if (venues.length === 0) {
         return (
             <div className="flex flex-col h-dvh w-full bg-background">
                 <header className="shrink-0 z-40 bg-[#0a0a0a]/95 backdrop-blur-lg border-b border-white/5">
