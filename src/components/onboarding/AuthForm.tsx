@@ -150,16 +150,32 @@ export default function AuthForm() {
                 if (user) {
                     const { data: profile } = await supabase
                         .from("profiles")
-                        .select("id, role")
+                        .select("id, role, date_of_birth, music_preferences, vibe_preferences")
                         .eq("id", user.id)
                         .single();
 
-                    if (profile) {
-                        // Route based on role
-                        const destination = await routeByRole(user.id);
-                        router.push(destination);
-                    } else {
+                    if (!profile) {
+                        // No profile yet — start onboarding
                         router.push("/onboarding/step-2-dob");
+                    } else {
+                        // Route based on role
+                        switch (profile.role) {
+                            case "supplier":
+                                router.push("/supplier/dashboard");
+                                break;
+                            case "admin":
+                                router.push("/admin/dashboard");
+                                break;
+                            case "consumer":
+                            default:
+                                // Check if consumer has finished onboarding
+                                if (profile.date_of_birth && profile.music_preferences?.length && profile.vibe_preferences?.length) {
+                                    router.push("/home");
+                                } else {
+                                    router.push("/onboarding/step-2-dob");
+                                }
+                                break;
+                        }
                     }
                 }
             }

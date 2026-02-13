@@ -237,3 +237,144 @@ export interface Notification {
     is_read: boolean;
     created_at: string;
 }
+
+// ── Supplier Types ──────────────────────────────────────────
+
+export type VerificationStatus = "pending" | "approved" | "rejected" | "banned";
+export type SupplierPlan = "basic" | "pro" | "tickets";
+export type EventStatus = "draft" | "published" | "ended";
+export type PriceTier = "$" | "$$" | "$$$";
+
+export interface Supplier {
+    id: string;
+    user_id: string;
+    business_name: string;
+    verification_status: VerificationStatus;
+    stripe_connect_id?: string | null;
+    plan: SupplierPlan;
+    contact_email?: string | null;
+    phone?: string | null;
+    website?: string | null;
+    social_links?: { instagram?: string; facebook?: string; tiktok?: string } | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface SupplierEvent {
+    id: string;
+    supplier_id: string;
+    venue_id: string;
+    venue_name: string;
+    name: string;
+    description?: string | null;
+    venue_type: VenueType;
+    venue_category?: VenueCategory | null;
+    event_date: string;
+    end_date?: string | null;
+    age_requirement: number;
+    music_types: string[];
+    vibes: string[];
+    cover_range?: string | null;
+    price_tier?: PriceTier | null;
+    capacity?: number | null;
+    gallery_images: string[];
+    checkin_qr_secret: string;
+    status: EventStatus;
+    tasks_enabled: boolean;
+    rewards_enabled: boolean;
+    refund_policy?: string | null;
+    created_at: string;
+    // Computed stats
+    views?: number;
+    opens?: number;
+    saves?: number;
+    checkins?: number;
+}
+
+export type TaskType = "checkin" | "early_checkin" | "bring_friend";
+
+export interface EventTask {
+    id: string;
+    event_id: string;
+    task_type: TaskType;
+    xp_value: number;
+    early_checkin_time?: string | null; // HH:MM format
+    created_at: string;
+}
+
+export type RewardType = "free_drink" | "discount" | "vip_access" | "skip_line" | "custom";
+export type ExpiryType = "same_night" | "date_range";
+
+export interface EventReward {
+    id: string;
+    event_id: string;
+    venue_id: string;
+    name: string;
+    reward_type: RewardType;
+    description: string;
+    min_level: number;
+    expiry_type: ExpiryType;
+    expiry_date?: string | null;
+    inventory_limit?: number | null;
+    redemption_limit_per_user: number;
+    created_at: string;
+}
+
+export interface TicketType {
+    id: string;
+    event_id: string;
+    name: string;
+    price: number;
+    quantity: number;
+    sales_start: string;
+    sales_end: string;
+    description?: string | null;
+    sold?: number;
+    created_at: string;
+}
+
+export type TicketStatus = "valid" | "used" | "refunded" | "cancelled";
+
+export interface TicketPurchase {
+    id: string;
+    user_id: string;
+    event_id: string;
+    ticket_id: string;
+    ticket_type_name?: string;
+    buyer_name?: string;
+    stripe_payment_ref?: string | null;
+    ticket_qr_secret: string;
+    status: TicketStatus;
+    purchased_at: string;
+}
+
+export interface Attendance {
+    id: string;
+    user_id: string;
+    username?: string;
+    event_id: string;
+    venue_id: string;
+    checked_in_at: string;
+    method: "qr" | "manual";
+}
+
+export interface EventAnalytics {
+    id: string;
+    event_id: string;
+    date: string;
+    map_impressions: number;
+    event_opens: number;
+    saves: number;
+    shares: number;
+    check_ins: number;
+    ticket_sales: number;
+}
+
+export interface RewardRedemption {
+    id: string;
+    user_id: string;
+    username?: string;
+    reward_id: string;
+    reward_name?: string;
+    redeemed_at: string;
+}

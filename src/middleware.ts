@@ -18,8 +18,8 @@ const PROTECTED_ROUTES = [
     "/notifications",
     "/profile",
     "/rewards",
-    "/supplier/dashboard",
-    "/admin/dashboard",
+    "/supplier",
+    "/admin",
 ];
 
 export async function middleware(request: NextRequest) {
@@ -72,10 +72,42 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(url);
     }
 
-    // Redirect root to onboarding / home
+    // Admin route protection — verify user has admin role
+    if (user && pathname.startsWith("/admin")) {
+        const { data: profile } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", user.id)
+            .single();
+
+        if (profile?.role !== "admin") {
+            const url = request.nextUrl.clone();
+            url.pathname = profile?.role === "supplier" ? "/supplier/dashboard" : "/home";
+            return NextResponse.redirect(url);
+        }
+    }
+
+    // Redirect root based on role
     if (pathname === "/") {
         const url = request.nextUrl.clone();
-        url.pathname = user ? "/home" : "/onboarding/step-0-role";
+        if (!user) {
+            url.pathname = "/onboarding/step-0-role";
+        } else {
+            // Check role for proper routing
+            const { data: profile } = await supabase
+                .from("profiles")
+                .select("role")
+                .eq("id", user.id)
+                .single();
+
+            if (profile?.role === "supplier") {
+                url.pathname = "/supplier/dashboard";
+            } else if (profile?.role === "admin") {
+                url.pathname = "/admin/dashboard";
+            } else {
+                url.pathname = "/home";
+            }
+        }
         return NextResponse.redirect(url);
     }
 

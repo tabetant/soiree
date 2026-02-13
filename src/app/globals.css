@@ -300,3 +300,7 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* ── Admin Styles ──────────────────────────────────── */
+
+@import "./admin.css";

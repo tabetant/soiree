@@ -7,14 +7,17 @@
  */
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import BottomNav from "@/components/BottomNav";
 import { getInitials, stringToHue } from "@/lib/feedUtils";
 
 export default function ProfilePage() {
+    const router = useRouter();
     const [username, setUsername] = useState("nightowl");
     const [xp, setXp] = useState(0);
     const [level, setLevel] = useState(1);
+    const [signingOut, setSigningOut] = useState(false);
 
     useEffect(() => {
         async function loadProfile() {
@@ -40,6 +43,17 @@ export default function ProfilePage() {
         }
         loadProfile();
     }, []);
+
+    const handleSignOut = async () => {
+        setSigningOut(true);
+        try {
+            const supabase = createClient();
+            await supabase.auth.signOut();
+            router.push("/onboarding/step-1-auth");
+        } catch {
+            setSigningOut(false);
+        }
+    };
 
     const hue = stringToHue(username);
 
@@ -120,6 +134,15 @@ export default function ProfilePage() {
                         Full profile editing coming soon.
                     </p>
                 </div>
+
+                {/* Sign Out */}
+                <button
+                    onClick={handleSignOut}
+                    disabled={signingOut}
+                    className="w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
+                >
+                    {signingOut ? "Signing out…" : "Sign Out"}
+                </button>
             </div>
 
             <BottomNav />
