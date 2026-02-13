@@ -1,183 +1,81 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useAdminEvent, useAdminSuppliers, useAdminFlags } from "@/hooks/useAdminData";
+import { createClient } from "@/lib/supabase";
 import ActionModal from "@/components/admin/ActionModal";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function EventDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const { data: event } = useAdminEvent(id);
+    const [event, setEvent] = useState<any>(null);
+    const [supplier, setSupplier] = useState<any>(null);
+    const [flags, setFlags] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
     const [modal, setModal] = useState<"unpublish" | "delete" | null>(null);
-    const [eventStatus, setEventStatus] = useState(event?.status || "draft");
-    const { data: allSuppliers } = useAdminSuppliers();
-    const { data: allFlags } = useAdminFlags();
+    const [eventStatus, setEventStatus] = useState("draft");
 
-    if (!event) {
-        return (
-            <div className="admin-page">
-                <p className="admin-empty">Event not found.</p>
-                <Link href="/admin/events" className="admin-btn admin-btn--outline">← Back</Link>
-            </div>
-        );
+    useEffect(() => { loadEvent(); }, [id]);
+
+    async function loadEvent() {
+        setLoading(true);
+        try {
+            const sb = createClient();
+            const { data, error } = await sb.from("events").select("*").eq("id", id).single();
+            if (error || !data) { setEvent(null); setLoading(false); return; }
+            setEvent(data);
+            setEventStatus(data.status || "draft");
+
+            if (data.supplier_id) {
+                const { data: s } = await sb.from("suppliers").select("id, business_name").eq("id", data.supplier_id).maybeSingle();
+                setSupplier(s);
+            }
+
+            const { data: f } = await sb.from("flags").select("*").eq("target_type", "event").eq("target_id", id).order("created_at", { ascending: false });
+            setFlags(f || []);
+        } catch (err) { console.error("Error:", err); }
+        finally { setLoading(false); }
     }
 
-    const supplier = allSuppliers.find((s) => s.id === event.supplier_id);
-    const flags = allFlags.filter((f) => f.target_type === "event" && f.target_id === event.id);
+    if (loading) return <div className="admin-page"><p className="admin-empty">Loading…</p></div>;
+    if (!event) return <div className="admin-page"><p className="admin-empty">Event not found.</p><Link href="/admin/events" className="admin-btn admin-btn--outline">← Back</Link></div>;
 
     return (
         <div className="admin-page">
             <div className="admin-detail-header">
                 <Link href="/admin/events" className="admin-detail-header__back">←</Link>
-                <div>
-                    <h1 className="admin-page__title">{event.name}</h1>
-                    <span className={`admin-badge admin-badge--${eventStatus}`}>{eventStatus}</span>
-                </div>
+                <div><h1 className="admin-page__title">{event.name}</h1><span className={`admin-badge admin-badge--${eventStatus}`}>{eventStatus}</span></div>
             </div>
-
-            {/* Actions */}
             <div className="admin-detail-actions">
-                {eventStatus === "published" && (
-                    <button className="admin-btn admin-btn--warning" onClick={() => setModal("unpublish")}>
-                        ⏸ Unpublish Event
-                    </button>
-                )}
-                <button className="admin-btn admin-btn--danger" onClick={() => setModal("delete")}>
-                    🗑 Delete Event
-                </button>
-                {supplier && (
-                    <Link href={`/admin/suppliers/${supplier.id}`} className="admin-btn admin-btn--outline">
-                        🏢 View Supplier
-                    </Link>
-                )}
+                {eventStatus === "published" && <button className="admin-btn admin-btn--warning" onClick={() => setModal("unpublish")}>⏸ Unpublish</button>}
+                <button className="admin-btn admin-btn--danger" onClick={() => setModal("delete")}>🗑 Delete Event</button>
+                {supplier && <Link href={`/admin/suppliers/${supplier.id}`} className="admin-btn admin-btn--outline">🏢 View Supplier</Link>}
             </div>
-
-            {/* Info Grid */}
             <div className="admin-detail-grid">
                 <div className="admin-card">
                     <h3 className="admin-section-title">Event Details</h3>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Name</span>
-                        <span className="admin-info-row__value">{event.name}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Venue</span>
-                        <span className="admin-info-row__value">{event.venue_name}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Supplier</span>
-                        <span className="admin-info-row__value">{supplier?.business_name || "—"}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Type</span>
-                        <span className="admin-info-row__value">{event.venue_type}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Date</span>
-                        <span className="admin-info-row__value">{new Date(event.event_date).toLocaleString()}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Age</span>
-                        <span className="admin-info-row__value">{event.age_requirement}+</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Capacity</span>
-                        <span className="admin-info-row__value">{event.capacity || "—"}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Price</span>
-                        <span className="admin-info-row__value">{event.cover_range || event.price_tier}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Music</span>
-                        <span className="admin-info-row__value">{event.music_types.join(", ")}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Vibes</span>
-                        <span className="admin-info-row__value">{event.vibes.join(", ")}</span>
-                    </div>
+                    {[["Name", event.name], ["Venue", event.venue_name || "—"], ["Supplier", supplier?.business_name || "—"], ["Type", event.venue_type], ["Date", new Date(event.event_date).toLocaleString()], ["Age", `${event.age_requirement}+`], ["Capacity", event.capacity || "—"], ["Price", event.cover_range || event.price_tier], ["Music", (event.music_types || []).join(", ")], ["Vibes", (event.vibes || []).join(", ")]].map(([l, v]) => (
+                        <div key={l} className="admin-info-row"><span className="admin-info-row__label">{l}</span><span className="admin-info-row__value">{v}</span></div>
+                    ))}
                 </div>
-
                 <div className="admin-card">
                     <h3 className="admin-section-title">Performance Stats</h3>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Map Views</span>
-                        <span className="admin-info-row__value">{event.views?.toLocaleString() || 0}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Event Opens</span>
-                        <span className="admin-info-row__value">{event.opens?.toLocaleString() || 0}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Saves</span>
-                        <span className="admin-info-row__value">{event.saves || 0}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Check-ins</span>
-                        <span className="admin-info-row__value">{event.checkins || 0}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Tasks Enabled</span>
-                        <span className="admin-info-row__value">{event.tasks_enabled ? "Yes" : "No"}</span>
-                    </div>
-                    <div className="admin-info-row">
-                        <span className="admin-info-row__label">Rewards Enabled</span>
-                        <span className="admin-info-row__value">{event.rewards_enabled ? "Yes" : "No"}</span>
-                    </div>
+                    {[["Map Views", event.views?.toLocaleString() || 0], ["Event Opens", event.opens?.toLocaleString() || 0], ["Saves", event.saves || 0], ["Check-ins", event.checkins || 0], ["Tasks Enabled", event.tasks_enabled ? "Yes" : "No"], ["Rewards Enabled", event.rewards_enabled ? "Yes" : "No"]].map(([l, v]) => (
+                        <div key={l} className="admin-info-row"><span className="admin-info-row__label">{l}</span><span className="admin-info-row__value">{v}</span></div>
+                    ))}
                 </div>
             </div>
-
-            {/* Flags */}
             {flags.length > 0 && (
                 <div className="admin-card">
                     <h3 className="admin-section-title">🚩 Flags ({flags.length})</h3>
-                    <div className="admin-table-wrap">
-                        <table className="admin-table">
-                            <thead>
-                                <tr>
-                                    <th>Reporter</th>
-                                    <th>Reason</th>
-                                    <th>Status</th>
-                                    <th>Date</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {flags.map((f) => (
-                                    <tr key={f.id}>
-                                        <td>{f.reporter_name}</td>
-                                        <td>{f.reason}</td>
-                                        <td><span className={`admin-badge admin-badge--${f.status}`}>{f.status}</span></td>
-                                        <td>{new Date(f.created_at).toLocaleDateString()}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Reporter</th><th>Reason</th><th>Status</th><th>Date</th></tr></thead><tbody>
+                        {flags.map(f => <tr key={f.id}><td>{f.reporter_name || "User"}</td><td>{f.reason}</td><td><span className={`admin-badge admin-badge--${f.status}`}>{f.status}</span></td><td>{new Date(f.created_at).toLocaleDateString()}</td></tr>)}
+                    </tbody></table></div>
                 </div>
             )}
-
-            {/* Modals */}
-            <ActionModal
-                open={modal === "unpublish"}
-                title="Unpublish Event"
-                description={`Remove "${event.name}" from the map? It will no longer be visible to consumers.`}
-                confirmLabel="Unpublish"
-                confirmVariant="warning"
-                onConfirm={() => { setEventStatus("draft"); setModal(null); }}
-                onCancel={() => setModal(null)}
-            />
-            <ActionModal
-                open={modal === "delete"}
-                title="Delete Event"
-                description={`Permanently delete "${event.name}"? This action cannot be undone.`}
-                confirmLabel="Delete Event"
-                confirmVariant="danger"
-                requireReason
-                reasonLabel="Reason for deletion"
-                onConfirm={() => { setModal(null); }}
-                onCancel={() => setModal(null)}
-            />
+            <ActionModal open={modal === "unpublish"} title="Unpublish Event" description={`Remove "${event.name}" from the map?`} confirmLabel="Unpublish" confirmVariant="warning" onConfirm={() => { setEventStatus("draft"); setModal(null); }} onCancel={() => setModal(null)} />
+            <ActionModal open={modal === "delete"} title="Delete Event" description={`Permanently delete "${event.name}"?`} confirmLabel="Delete Event" confirmVariant="danger" requireReason reasonLabel="Reason for deletion" onConfirm={() => setModal(null)} onCancel={() => setModal(null)} />
         </div>
     );
 }

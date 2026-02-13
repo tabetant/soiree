@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { useAdminActions } from "@/hooks/useAdminData";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ActionRow = any;
 
 export default function SettingsPage() {
     const router = useRouter();
-    const { data: actions } = useAdminActions();
+    const [actions, setActions] = useState<ActionRow[]>([]);
+    const [actionsLoading, setActionsLoading] = useState(true);
 
     // Feature toggles (UI-only for now)
     const [ticketing, setTicketing] = useState(true);
@@ -17,6 +20,37 @@ export default function SettingsPage() {
     const [maintenance, setMaintenance] = useState(false);
     const [autoApprove, setAutoApprove] = useState(false);
     const [eventReview, setEventReview] = useState(false);
+
+    useEffect(() => {
+        loadActions();
+    }, []);
+
+    async function loadActions() {
+        console.log("=== LOADING ADMIN ACTIONS ===");
+        setActionsLoading(true);
+        try {
+            const supabase = createClient();
+            const { data, error } = await supabase
+                .from("admin_actions")
+                .select("*")
+                .order("created_at", { ascending: false })
+                .limit(50);
+
+            if (error) {
+                console.error("Error fetching admin_actions:", error);
+                setActions([]);
+                return;
+            }
+
+            console.log("Admin actions:", data);
+            setActions(data || []);
+        } catch (err) {
+            console.error("Error loading actions:", err);
+            setActions([]);
+        } finally {
+            setActionsLoading(false);
+        }
+    }
 
     const handleSignOut = async () => {
         const supabase = createClient();
@@ -117,31 +151,42 @@ export default function SettingsPage() {
 
             {/* Activity Log */}
             <div className="admin-card">
-                <h3 className="admin-section-title">Activity Log</h3>
-                <div className="admin-table-wrap">
-                    <table className="admin-table">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Admin</th>
-                                <th>Action</th>
-                                <th>Target</th>
-                                <th>Notes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {actions.map((a) => (
-                                <tr key={a.id}>
-                                    <td>{new Date(a.created_at).toLocaleString()}</td>
-                                    <td>{a.admin_name}</td>
-                                    <td>{a.action_type.replace(/_/g, " ")}</td>
-                                    <td>{a.target_name}</td>
-                                    <td>{a.reason || "—"}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <h3 className="admin-section-title" style={{ margin: 0 }}>Activity Log</h3>
+                    <button className="admin-btn admin-btn--sm admin-btn--outline" onClick={loadActions}>
+                        🔄 Refresh
+                    </button>
                 </div>
+                {actionsLoading ? (
+                    <p className="admin-empty">Loading activity log…</p>
+                ) : actions.length === 0 ? (
+                    <p className="admin-empty">No admin actions recorded yet</p>
+                ) : (
+                    <div className="admin-table-wrap">
+                        <table className="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Admin</th>
+                                    <th>Action</th>
+                                    <th>Target</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {actions.map((a) => (
+                                    <tr key={a.id}>
+                                        <td>{new Date(a.created_at).toLocaleString()}</td>
+                                        <td>{a.admin_name || "Admin"}</td>
+                                        <td>{(a.action_type || "").replace(/_/g, " ")}</td>
+                                        <td>{a.target_name || a.target_type || "—"}</td>
+                                        <td>{a.reason || "—"}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
         </div>
     );

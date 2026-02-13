@@ -1,37 +1,18 @@
 "use client";
 
-/**
- * Admin Suppliers Page — Direct Supabase Fetching
- *
- * Shows all suppliers with filtering by status and search.
- * Fetches directly from Supabase (no useData hook).
- */
-
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
 const STATUS_TABS = ["All", "Pending", "Approved", "Rejected", "Banned"] as const;
 type StatusTab = (typeof STATUS_TABS)[number];
 
-interface SupplierRow {
-    id: string;
-    user_id: string;
-    business_name: string;
-    verification_status: string;
-    plan?: string;
-    created_at: string;
-    contact_email?: string;
-    // Joined data
-    email?: string;
-    contact_name?: string;
-    venues_count: number;
-    events_count: number;
-    total_checkins: number;
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupplierRow = any;
 
 export default function SuppliersPage() {
+    const router = useRouter();
     const searchParams = useSearchParams();
     const initialTab = (searchParams.get("status") || "All") as StatusTab;
 
@@ -44,83 +25,89 @@ export default function SuppliersPage() {
 
     useEffect(() => {
         loadSuppliers();
+
+        // Real-time subscription
+        const supabase = createClient();
+        const channel = supabase
+            .channel("suppliers-changes")
+            .on("postgres_changes", { event: "*", schema: "public", table: "suppliers" }, (payload) => {
+                console.log("Supplier changed:", payload);
+                loadSuppliers();
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
     }, []);
 
     async function loadSuppliers() {
-        console.log("=== ADMIN SUPPLIERS: Loading ===");
+        console.log("=== LOADING SUPPLIERS FROM SUPABASE ===");
         setLoading(true);
 
         try {
             const supabase = createClient();
 
-            // Fetch all suppliers
             const { data, error } = await supabase
                 .from("suppliers")
                 .select("*")
                 .order("created_at", { ascending: false });
 
             if (error) {
-                console.error("[Suppliers] Error:", error);
+                console.error("Error fetching suppliers:", error);
                 throw error;
             }
 
-            console.log("[Suppliers] Raw data:", data);
+            console.log("Raw suppliers data:", data);
 
-            // For each supplier, get counts and user info
-            const enriched: SupplierRow[] = await Promise.all(
-                (data || []).map(async (s) => {
-                    // Get user email/username
-                    let email = s.contact_email || "";
-                    let contactName = "";
+            if (!data || data.length === 0) {
+                console.log("No suppliers found in database");
+                setSuppliers([]);
+                setLoading(false);
+                return;
+            }
 
-                    if (s.user_id) {
+            // Get counts for each supplier
+            const suppliersWithCounts = await Promise.all(
+                data.map(async (supplier) => {
+                    // Get user profile
+                    let email = supplier.contact_email || "";
+                    let username = "";
+                    if (supplier.user_id) {
                         const { data: profile } = await supabase
                             .from("profiles")
                             .select("email, username")
-                            .eq("id", s.user_id)
+                            .eq("id", supplier.user_id)
                             .maybeSingle();
-
                         if (profile) {
                             email = profile.email || email;
-                            contactName = profile.username || "";
+                            username = profile.username || "";
                         }
                     }
 
-                    // Get venue count
                     const { count: venueCount } = await supabase
                         .from("venues")
                         .select("*", { count: "exact", head: true })
-                        .eq("supplier_id", s.id);
+                        .eq("supplier_id", supplier.id);
 
-                    // Get event count
                     const { count: eventCount } = await supabase
                         .from("events")
                         .select("*", { count: "exact", head: true })
-                        .eq("supplier_id", s.id);
+                        .eq("supplier_id", supplier.id);
 
                     return {
-                        id: s.id,
-                        user_id: s.user_id,
-                        business_name: s.business_name,
-                        verification_status: s.verification_status,
-                        plan: s.plan || undefined,
-                        created_at: s.created_at,
-                        contact_email: s.contact_email,
-                        email,
-                        contact_name: contactName,
-                        venues_count: venueCount || 0,
-                        events_count: eventCount || 0,
-                        total_checkins: 0,
+                        ...supplier,
+                        user_email: email,
+                        user_username: username,
+                        venue_count: venueCount || 0,
+                        event_count: eventCount || 0,
                     };
                 })
             );
 
-            console.log("[Suppliers] Enriched:", enriched);
-            setSuppliers(enriched);
-
-        } catch (err) {
-            console.error("[Suppliers] Error loading:", err);
-            alert("Error loading suppliers. Check console.");
+            console.log("Suppliers with counts:", suppliersWithCounts);
+            setSuppliers(suppliersWithCounts);
+        } catch (error) {
+            console.error("Error loading suppliers:", error);
+            alert(`Error loading suppliers: ${error}`);
         } finally {
             setLoading(false);
         }
@@ -129,33 +116,52 @@ export default function SuppliersPage() {
     const filtered = useMemo(() => {
         let list = [...suppliers];
 
-        // Status filter
         if (tab !== "All") {
             const status = tab.toLowerCase();
             list = list.filter((s) => s.verification_status === status);
         }
 
-        // Search filter
         if (search.trim()) {
             const q = search.toLowerCase();
             list = list.filter(
                 (s) =>
-                    s.business_name.toLowerCase().includes(q) ||
-                    (s.email && s.email.toLowerCase().includes(q)) ||
-                    (s.contact_name && s.contact_name.toLowerCase().includes(q))
+                    s.business_name?.toLowerCase().includes(q) ||
+                    s.user_email?.toLowerCase().includes(q) ||
+                    s.user_username?.toLowerCase().includes(q)
             );
         }
 
         return list;
     }, [tab, search, suppliers]);
 
+    const counts = {
+        all: suppliers.length,
+        pending: suppliers.filter((s) => s.verification_status === "pending").length,
+        approved: suppliers.filter((s) => s.verification_status === "approved").length,
+        rejected: suppliers.filter((s) => s.verification_status === "rejected").length,
+        banned: suppliers.filter((s) => s.verification_status === "banned").length,
+    };
+
+    console.log("Filter counts:", counts);
+    console.log("Filtered suppliers:", filtered.length);
+
     return (
         <div className="admin-page">
             <div className="admin-page__header">
-                <h1 className="admin-page__title">Suppliers</h1>
+                <h1 className="admin-page__title">Suppliers Management</h1>
                 <button className="admin-btn admin-btn--outline" onClick={loadSuppliers}>
                     🔄 Refresh
                 </button>
+            </div>
+
+            {/* Debug Info */}
+            <div style={{ background: "rgba(234, 179, 8, 0.1)", border: "1px solid rgba(234, 179, 8, 0.4)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <p style={{ color: "#eab308", fontSize: 13 }}>
+                    Total in DB: {suppliers.length} |
+                    Pending: {counts.pending} |
+                    Approved: {counts.approved} |
+                    Showing: {filtered.length}
+                </p>
             </div>
 
             <div className="admin-filters">
@@ -166,19 +172,13 @@ export default function SuppliersPage() {
                             className={`admin-filter-tab ${tab === t ? "admin-filter-tab--active" : ""}`}
                             onClick={() => setTab(t)}
                         >
-                            {t}
-                            <span style={{ marginLeft: 6, opacity: 0.5 }}>
-                                ({t === "All"
-                                    ? suppliers.length
-                                    : suppliers.filter(s => s.verification_status === t.toLowerCase()).length
-                                })
-                            </span>
+                            {t} ({counts[t.toLowerCase() as keyof typeof counts]})
                         </button>
                     ))}
                 </div>
                 <input
                     className="admin-search"
-                    placeholder="Search business name, email…"
+                    placeholder="Search suppliers…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />
@@ -186,55 +186,62 @@ export default function SuppliersPage() {
 
             <div className="admin-card">
                 {loading ? (
-                    <p className="admin-empty" style={{ padding: 32 }}>Loading suppliers…</p>
+                    <div style={{ textAlign: "center", padding: 48 }}>
+                        <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
+                        <p className="admin-empty">Loading suppliers…</p>
+                    </div>
+                ) : suppliers.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 48 }}>
+                        <p className="admin-empty" style={{ fontSize: 16, marginBottom: 8 }}>No suppliers in database</p>
+                        <p className="admin-empty">Suppliers will appear here when they apply or are created</p>
+                    </div>
+                ) : filtered.length === 0 ? (
+                    <p className="admin-empty" style={{ padding: 32 }}>
+                        {search ? "No suppliers match your search" : `No ${tab.toLowerCase()} suppliers`}
+                    </p>
                 ) : (
                     <div className="admin-table-wrap">
                         <table className="admin-table">
                             <thead>
                                 <tr>
                                     <th>Business Name</th>
-                                    <th>Contact</th>
+                                    <th>Email</th>
                                     <th>Status</th>
                                     <th>Plan</th>
                                     <th>Venues</th>
                                     <th>Events</th>
-                                    <th>Check-ins</th>
-                                    <th>Member Since</th>
+                                    <th>Joined</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={8} className="admin-empty">
-                                            {search ? "No suppliers match your search" : `No ${tab.toLowerCase()} suppliers`}
+                                {filtered.map((s) => (
+                                    <tr key={s.id} className="admin-table__clickable">
+                                        <td className="admin-table__primary">{s.business_name}</td>
+                                        <td>{s.user_email || "N/A"}</td>
+                                        <td>
+                                            <span className={`admin-badge admin-badge--${s.verification_status}`}>
+                                                {s.verification_status}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span className={`admin-badge admin-badge--${s.plan || "free"}`}>
+                                                {s.plan || "—"}
+                                            </span>
+                                        </td>
+                                        <td>{s.venue_count}</td>
+                                        <td>{s.event_count}</td>
+                                        <td>{new Date(s.created_at).toLocaleDateString()}</td>
+                                        <td>
+                                            <button
+                                                className="admin-btn admin-btn--sm admin-btn--outline"
+                                                onClick={() => router.push(`/admin/suppliers/${s.id}`)}
+                                            >
+                                                View →
+                                            </button>
                                         </td>
                                     </tr>
-                                ) : (
-                                    filtered.map((s) => (
-                                        <tr key={s.id} className="admin-table__clickable">
-                                            <td className="admin-table__primary">
-                                                <Link href={`/admin/suppliers/${s.id}`} style={{ color: "inherit", textDecoration: "none" }}>
-                                                    {s.business_name}
-                                                </Link>
-                                            </td>
-                                            <td>{s.email}</td>
-                                            <td>
-                                                <span className={`admin-badge admin-badge--${s.verification_status}`}>
-                                                    {s.verification_status}
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <span className={`admin-badge admin-badge--${s.plan || "free"}`}>
-                                                    {s.plan || "—"}
-                                                </span>
-                                            </td>
-                                            <td>{s.venues_count}</td>
-                                            <td>{s.events_count}</td>
-                                            <td>{s.total_checkins}</td>
-                                            <td>{new Date(s.created_at || "").toLocaleDateString()}</td>
-                                        </tr>
-                                    ))
-                                )}
+                                ))}
                             </tbody>
                         </table>
                     </div>

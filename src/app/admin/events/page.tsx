@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useAdminEvents, useAdminFlags } from "@/hooks/useAdminData";
+import { createClient } from "@/lib/supabase";
 
 const STATUS_TABS = ["All", "Published", "Draft", "Ended", "Flagged"] as const;
 type StatusTab = (typeof STATUS_TABS)[number];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EventRow = any;
 
 export default function EventsPage() {
     const searchParams = useSearchParams();
@@ -15,13 +18,86 @@ export default function EventsPage() {
     const [tab, setTab] = useState<StatusTab>(showFlagged ? "Flagged" : "All");
     const [search, setSearch] = useState("");
     const [typeFilter, setTypeFilter] = useState("all");
-    const { data: events } = useAdminEvents();
-    const { data: flags } = useAdminFlags();
+    const [events, setEvents] = useState<EventRow[]>([]);
+    const [flaggedEventIds, setFlaggedEventIds] = useState<Set<string>>(new Set());
+    const [loading, setLoading] = useState(true);
 
-    const flaggedEventIds = useMemo(
-        () => new Set(flags.filter((f) => f.target_type === "event" && f.status === "pending").map((f) => f.target_id)),
-        [flags]
-    );
+    useEffect(() => {
+        loadEvents();
+
+        // Real-time subscription
+        const supabase = createClient();
+        const channel = supabase
+            .channel("events-changes")
+            .on("postgres_changes", { event: "*", schema: "public", table: "events" }, () => {
+                console.log("Event changed, reloading…");
+                loadEvents();
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, []);
+
+    async function loadEvents() {
+        console.log("=== LOADING EVENTS FROM SUPABASE ===");
+        setLoading(true);
+
+        try {
+            const supabase = createClient();
+
+            // Fetch events with venue + supplier info
+            const { data, error } = await supabase
+                .from("events")
+                .select(`
+                    *,
+                    venue:venues(name),
+                    supplier:suppliers(business_name)
+                `)
+                .order("event_date", { ascending: false });
+
+            if (error) {
+                console.error("Error fetching events:", error);
+                throw error;
+            }
+
+            console.log("Raw events:", data);
+
+            // Get checkin counts for each event
+            const enriched = await Promise.all(
+                (data || []).map(async (e) => {
+                    const { count } = await supabase
+                        .from("attendances")
+                        .select("*", { count: "exact", head: true })
+                        .eq("event_id", e.id);
+
+                    return {
+                        ...e,
+                        venue_name: e.venue?.name || e.venue_name || "—",
+                        supplier_name: e.supplier?.business_name || "—",
+                        checkins: count || 0,
+                    };
+                })
+            );
+
+            // Fetch flags
+            const { data: flags } = await supabase
+                .from("flags")
+                .select("target_id")
+                .eq("target_type", "event")
+                .eq("status", "pending");
+
+            const flagIds = new Set((flags || []).map((f) => f.target_id));
+
+            console.log("Events enriched:", enriched.length, "Flagged:", flagIds.size);
+            setEvents(enriched);
+            setFlaggedEventIds(flagIds);
+        } catch (error) {
+            console.error("Error loading events:", error);
+            alert(`Error loading events: ${error}`);
+        } finally {
+            setLoading(false);
+        }
+    }
 
     const filtered = useMemo(() => {
         let list = [...events];
@@ -43,18 +119,21 @@ export default function EventsPage() {
             const q = search.toLowerCase();
             list = list.filter(
                 (e) =>
-                    e.name.toLowerCase().includes(q) ||
-                    (e.venue_name && e.venue_name.toLowerCase().includes(q))
+                    e.name?.toLowerCase().includes(q) ||
+                    e.venue_name?.toLowerCase().includes(q)
             );
         }
 
         return list;
-    }, [tab, search, typeFilter, flaggedEventIds]);
+    }, [tab, search, typeFilter, events, flaggedEventIds]);
 
     return (
         <div className="admin-page">
             <div className="admin-page__header">
                 <h1 className="admin-page__title">Events</h1>
+                <button className="admin-btn admin-btn--outline" onClick={loadEvents}>
+                    🔄 Refresh
+                </button>
             </div>
 
             <div className="admin-filters">
@@ -89,30 +168,32 @@ export default function EventsPage() {
             </div>
 
             <div className="admin-card">
-                <div className="admin-table-wrap">
-                    <table className="admin-table">
-                        <thead>
-                            <tr>
-                                <th>Event</th>
-                                <th>Venue</th>
-                                <th>Type</th>
-                                <th>Date</th>
-                                <th>Status</th>
-                                <th>Check-ins</th>
-                                <th>Flags</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filtered.length === 0 ? (
+                {loading ? (
+                    <div style={{ textAlign: "center", padding: 48 }}>
+                        <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
+                        <p className="admin-empty">Loading events…</p>
+                    </div>
+                ) : (
+                    <div className="admin-table-wrap">
+                        <table className="admin-table">
+                            <thead>
                                 <tr>
-                                    <td colSpan={7} className="admin-empty">No events found</td>
+                                    <th>Event</th>
+                                    <th>Venue</th>
+                                    <th>Type</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Check-ins</th>
+                                    <th>Flags</th>
                                 </tr>
-                            ) : (
-                                filtered.map((e) => {
-                                    const flagCount = flags.filter(
-                                        (f) => f.target_type === "event" && f.target_id === e.id && f.status === "pending"
-                                    ).length;
-                                    return (
+                            </thead>
+                            <tbody>
+                                {filtered.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={7} className="admin-empty">No events found</td>
+                                    </tr>
+                                ) : (
+                                    filtered.map((e) => (
                                         <tr key={e.id} className="admin-table__clickable">
                                             <td className="admin-table__primary">
                                                 <Link href={`/admin/events/${e.id}`} style={{ color: "inherit", textDecoration: "none" }}>
@@ -123,21 +204,19 @@ export default function EventsPage() {
                                             <td><span className="admin-badge admin-badge--listing">{e.venue_type}</span></td>
                                             <td>{new Date(e.event_date).toLocaleDateString()}</td>
                                             <td><span className={`admin-badge admin-badge--${e.status}`}>{e.status}</span></td>
-                                            <td>{e.checkins || 0}</td>
+                                            <td>{e.checkins}</td>
                                             <td>
-                                                {flagCount > 0 ? (
-                                                    <span className="admin-badge admin-badge--flagged">{flagCount} 🚩</span>
-                                                ) : (
-                                                    "—"
-                                                )}
+                                                {flaggedEventIds.has(e.id) ? (
+                                                    <span className="admin-badge admin-badge--flagged">🚩</span>
+                                                ) : "—"}
                                             </td>
                                         </tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
         </div>
     );
