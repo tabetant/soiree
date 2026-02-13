@@ -26,6 +26,8 @@ import EventDetailSheet from "@/components/map/EventDetailSheet";
 import BottomNav from "@/components/BottomNav";
 import { MOCK_VENUES } from "@/lib/mockData";
 
+import { isDevMode } from "@/lib/devMode";
+
 export default function HomePage() {
     const router = useRouter();
     const [venues, setVenues] = useState<Venue[]>([]);
@@ -39,9 +41,18 @@ export default function HomePage() {
     // Search state
     const [searchQuery, setSearchQuery] = useState("");
 
-    // Load venues — always use mock data for MVP, try Supabase as supplement
+    // Load venues — check dev mode first
     useEffect(() => {
         async function loadVenues() {
+            // Dev mode: always use mock data
+            if (isDevMode()) {
+                console.log("[Home] Dev mode ON → using mock venues");
+                setVenues(MOCK_VENUES);
+                setLoading(false);
+                return;
+            }
+
+            console.log("[Home] Dev mode OFF → fetching real venues from Supabase");
             try {
                 const supabase = createClient();
                 const { data, error } = await supabase
@@ -61,17 +72,15 @@ export default function HomePage() {
                             gender_ratio: dbVenue.gender_ratio || mockMatch?.gender_ratio,
                         } as Venue;
                     });
-                    const dbNames = new Set(data.map((v: { name: string }) => v.name));
-                    const extraMock = MOCK_VENUES.filter((m: Venue) => !dbNames.has(m.name));
-                    setVenues([...enriched, ...extraMock]);
-                    console.info(`[Soirée] Loaded ${enriched.length} DB venues + ${extraMock.length} mock venues`);
+                    console.log(`[Home] Loaded ${enriched.length} real venues from Supabase`);
+                    setVenues(enriched);
                 } else {
-                    console.info("[Soirée] Using mock venue data");
-                    setVenues(MOCK_VENUES);
+                    console.log("[Home] No venues in Supabase — showing empty state");
+                    setVenues([]);
                 }
-            } catch {
-                console.info("[Soirée] Using mock venue data (Supabase unavailable)");
-                setVenues(MOCK_VENUES);
+            } catch (err) {
+                console.error("[Home] Supabase error:", err);
+                setVenues([]);
             } finally {
                 setLoading(false);
             }
