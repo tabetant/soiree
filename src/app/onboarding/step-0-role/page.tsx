@@ -3,11 +3,13 @@
 /**
  * Step 0: Role Selection
  *
- * Three role cards: Consumer (proceed), Venue Owner (contact), Admin (hidden).
- * Only Consumer can self-signup.
+ * Three role cards: Consumer (proceed), Venue Owner (apply), Admin (hidden).
+ * Consumer can self-signup. Venue Owner opens supplier application modal.
  */
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import SupplierApplicationModal from "@/components/SupplierApplicationModal";
 
 const ROLES = [
     {
@@ -20,7 +22,7 @@ const ROLES = [
         ),
         title: "Party-goer",
         description: "Discover events, earn rewards, connect with nightlife",
-        canProceed: true,
+        action: "proceed" as const,
     },
     {
         id: "supplier",
@@ -33,7 +35,7 @@ const ROLES = [
         ),
         title: "Venue Owner",
         description: "Manage events, track analytics, engage customers",
-        canProceed: false,
+        action: "apply" as const,
     },
     {
         id: "admin",
@@ -44,13 +46,14 @@ const ROLES = [
         ),
         title: "Admin",
         description: "Platform management",
-        canProceed: false,
+        action: "disabled" as const,
         hidden: true,
     },
 ];
 
 export default function Step0RolePage() {
     const router = useRouter();
+    const [showApplicationModal, setShowApplicationModal] = useState(false);
 
     return (
         <div className="animate-slide-up flex flex-col items-center gap-8">
@@ -71,19 +74,21 @@ export default function Step0RolePage() {
                     <button
                         key={role.id}
                         onClick={() => {
-                            if (role.canProceed) {
+                            if (role.action === "proceed") {
                                 sessionStorage.setItem("soiree_role", role.id);
                                 router.push("/onboarding/step-1-auth");
+                            } else if (role.action === "apply") {
+                                setShowApplicationModal(true);
                             }
                         }}
-                        disabled={!role.canProceed}
-                        className={`group relative flex items-start gap-4 rounded-2xl border-2 p-5 text-left transition-all duration-300 ${role.canProceed
+                        disabled={role.action === "disabled"}
+                        className={`group relative flex items-start gap-4 rounded-2xl border-2 p-5 text-left transition-all duration-300 ${role.action !== "disabled"
                                 ? "border-accent bg-accent/5 hover:bg-accent/10 hover:shadow-lg hover:shadow-accent/10 cursor-pointer"
                                 : "border-border bg-surface/50 opacity-60 cursor-not-allowed"
                             }`}
                     >
                         {/* Selected indicator for consumer */}
-                        {role.canProceed && (
+                        {role.action === "proceed" && (
                             <div className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-accent">
                                 <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
                                     <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -91,7 +96,7 @@ export default function Step0RolePage() {
                             </div>
                         )}
 
-                        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${role.canProceed
+                        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${role.action !== "disabled"
                                 ? "bg-accent/20 text-accent"
                                 : "bg-surface text-foreground-muted"
                             }`}>
@@ -99,15 +104,16 @@ export default function Step0RolePage() {
                         </div>
 
                         <div className="flex flex-col gap-1">
-                            <span className={`text-base font-semibold ${role.canProceed ? "text-foreground" : "text-foreground-muted"}`}>
+                            <span className={`text-base font-semibold ${role.action !== "disabled" ? "text-foreground" : "text-foreground-muted"
+                                }`}>
                                 {role.title}
                             </span>
                             <span className="text-sm text-foreground-muted leading-snug">
                                 {role.description}
                             </span>
-                            {!role.canProceed && (
-                                <span className="mt-1 text-xs text-accent/80">
-                                    Contact us to set up your venue account →
+                            {role.action === "apply" && (
+                                <span className="mt-1 text-xs text-accent font-medium">
+                                    Apply Now →
                                 </span>
                             )}
                         </div>
@@ -125,6 +131,12 @@ export default function Step0RolePage() {
             >
                 Get Started
             </button>
+
+            {/* Supplier Application Modal */}
+            <SupplierApplicationModal
+                isOpen={showApplicationModal}
+                onClose={() => setShowApplicationModal(false)}
+            />
         </div>
     );
 }

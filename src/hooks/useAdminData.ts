@@ -117,9 +117,10 @@ export function useAdminSuppliers(): UseDataResult<AdminSupplier[]> {
         const { data, error } = await supabase
             .from("suppliers")
             .select(`
-                id, user_id, business_name, contact_email, phone, website,
-                verification_status, stripe_connect_id, plan, social_links,
-                rejection_reason, created_at, updated_at
+                *,
+                user:profiles!user_id(email, username),
+                venues:venues(count),
+                events:events(count)
             `)
             .order("created_at", { ascending: false });
 
@@ -127,10 +128,10 @@ export function useAdminSuppliers(): UseDataResult<AdminSupplier[]> {
 
         return (data || []).map((s): AdminSupplier => ({
             ...s,
-            email: s.contact_email,
-            contact_name: undefined,
-            venues_count: 0,
-            events_count: 0,
+            email: s.user?.email || s.contact_email,
+            contact_name: s.user?.username,
+            venues_count: s.venues?.[0]?.count || 0,
+            events_count: s.events?.[0]?.count || 0,
             total_checkins: 0,
         }));
     });
@@ -172,11 +173,24 @@ export function useAdminEvents(): UseDataResult<SupplierEvent[]> {
         const supabase = createClient();
         const { data, error } = await supabase
             .from("events")
-            .select("*")
+            .select(`
+                *,
+                venue:venues(name),
+                supplier:suppliers(business_name),
+                attendances:attendances(count),
+                flags:flags(count)
+            `)
             .order("event_date", { ascending: false });
 
         if (error) throw error;
-        return (data || []) as SupplierEvent[];
+
+        return (data || []).map(e => ({
+            ...e,
+            venue_name: e.venue?.name || e.venue_name,
+            supplier_name: e.supplier?.business_name,
+            checkins: e.attendances?.[0]?.count || 0,
+            flag_count: e.flags?.[0]?.count || 0,
+        })) as SupplierEvent[];
     });
 }
 
@@ -203,9 +217,10 @@ export function useAdminUsers(): UseDataResult<AdminUser[]> {
         const { data, error } = await supabase
             .from("profiles")
             .select(`
-                id, username, display_name, email, role, level, total_xp, stars,
-                date_of_birth, music_preferences, vibe_preferences,
-                is_banned, ban_reason, created_at
+                *,
+                attendances:attendances(count),
+                posts:posts(count),
+                flags_target:flags!target_id(count)
             `)
             .order("created_at", { ascending: false });
 
@@ -223,9 +238,9 @@ export function useAdminUsers(): UseDataResult<AdminUser[]> {
             music_preferences: u.music_preferences || [],
             vibe_preferences: u.vibe_preferences || [],
             is_banned: u.is_banned || false,
-            checkins_count: 0,
-            posts_count: 0,
-            flags_count: 0,
+            checkins_count: u.attendances?.[0]?.count || 0,
+            posts_count: u.posts?.[0]?.count || 0,
+            flags_count: u.flags_target?.[0]?.count || 0,
         }));
     });
 }
@@ -267,25 +282,83 @@ export function useAdminUser(id: string): UseDataResult<AdminUser | null> {
 export function useAdminActions(): UseDataResult<AdminAction[]> {
     return useData<AdminAction[]>(MOCK_ADMIN_ACTIONS, async () => {
         const supabase = createClient();
-        const { data, error } = await supabase
+
+        // Fetch admin actions with admin profile names
+        const { data: adminActions, error: actionsError } = await supabase
             .from("admin_actions")
-            .select("*")
+            .select(`
+                *,
+                admin:profiles!admin_id(username, display_name)
+            `)
             .order("created_at", { ascending: false })
-            .limit(50);
+            .limit(20);
 
-        if (error) throw error;
+        if (actionsError) throw actionsError;
 
-        return (data || []).map((a): AdminAction => ({
-            id: a.id,
-            admin_id: a.admin_id,
-            admin_name: "Admin",
-            action_type: a.action_type,
-            target_type: a.target_type,
-            target_id: a.target_id,
-            target_name: a.target_type,
-            reason: a.reason,
-            created_at: a.created_at,
-        }));
+        const activities: AdminAction[] = [];
+
+        // Map admin actions
+        (adminActions || []).forEach(action => {
+            activities.push({
+                id: action.id,
+                admin_id: action.admin_id,
+                admin_name: action.admin?.display_name || action.admin?.username || "Admin",
+                action_type: action.action_type,
+                target_type: action.target_type,
+                target_id: action.target_id,
+                target_name: action.target_type,
+                reason: action.reason,
+                created_at: action.created_at,
+            });
+        });
+
+        // Fetch recent event publications
+        const { data: recentEvents } = await supabase
+            .from("events")
+            .select("id, name, created_at, supplier:suppliers(business_name)")
+            .eq("status", "published")
+            .order("created_at", { ascending: false })
+            .limit(10);
+
+        (recentEvents || []).forEach(event => {
+            activities.push({
+                id: `evt-${event.id}`,
+                admin_id: "",
+                admin_name: (event.supplier as { business_name?: string })?.business_name || "Supplier",
+                action_type: "event_published",
+                target_type: "event",
+                target_id: event.id,
+                target_name: event.name,
+                created_at: event.created_at,
+            });
+        });
+
+        // Fetch recent supplier applications
+        const { data: applications } = await supabase
+            .from("supplier_applications")
+            .select("id, business_name, email, status, created_at")
+            .order("created_at", { ascending: false })
+            .limit(10);
+
+        (applications || []).forEach(app => {
+            activities.push({
+                id: `app-${app.id}`,
+                admin_id: "",
+                admin_name: app.business_name,
+                action_type: "supplier_application",
+                target_type: "supplier",
+                target_id: app.id,
+                target_name: app.business_name,
+                created_at: app.created_at,
+            });
+        });
+
+        // Sort by timestamp (most recent first)
+        activities.sort((a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        return activities.slice(0, 20);
     });
 }
 
@@ -315,32 +388,112 @@ export function useAdminFlags(): UseDataResult<Flag[]> {
     });
 }
 
-/* ─── Growth & Analytics ─────────────────────────────────── */
+/* ─── Growth Data (30-day rollup) ────────────────────────── */
 
 export function useGrowthData(): UseDataResult<PlatformGrowthPoint[]> {
     return useData<PlatformGrowthPoint[]>(MOCK_GROWTH_DATA, async () => {
-        // Growth data isn't stored in a single table yet — fall back to mock
-        return MOCK_GROWTH_DATA;
+        const supabase = createClient();
+
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const since = thirtyDaysAgo.toISOString();
+
+        // Build date array
+        const dates: string[] = [];
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            dates.push(d.toISOString().split("T")[0]);
+        }
+
+        // Parallel fetches
+        const [usersRes, suppliersRes, checkinsRes, eventsRes] = await Promise.all([
+            supabase.from("profiles").select("created_at").eq("role", "consumer").gte("created_at", since),
+            supabase.from("suppliers").select("created_at").gte("created_at", since),
+            supabase.from("attendances").select("checked_in_at").gte("checked_in_at", since),
+            supabase.from("events").select("created_at").eq("status", "published").gte("created_at", since),
+        ]);
+
+        const newUsers = usersRes.data || [];
+        const newSuppliers = suppliersRes.data || [];
+        const checkIns = checkinsRes.data || [];
+        const events = eventsRes.data || [];
+
+        return dates.map(date => ({
+            date: new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            new_users: newUsers.filter(u => u.created_at?.split("T")[0] === date).length,
+            new_suppliers: newSuppliers.filter(s => s.created_at?.split("T")[0] === date).length,
+            check_ins: checkIns.filter(c => c.checked_in_at?.split("T")[0] === date).length,
+            events_published: events.filter(e => e.created_at?.split("T")[0] === date).length,
+        }));
     });
 }
+
+/* ─── Venue Analytics (top venues this week) ─────────────── */
 
 export function useVenueAnalytics(): UseDataResult<typeof MOCK_VENUE_ANALYTICS> {
     return useData(MOCK_VENUE_ANALYTICS, async () => {
         const supabase = createClient();
-        const { data, error } = await supabase
+
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const since = sevenDaysAgo.toISOString();
+
+        // Get all venues with their supplier
+        const { data: venues, error: venueError } = await supabase
             .from("venues")
-            .select("name, supplier_id")
-            .limit(10);
+            .select("id, name, supplier:suppliers(business_name)");
 
-        if (error) throw error;
+        if (venueError) throw venueError;
+        if (!venues || venues.length === 0) return [];
 
-        return (data || []).map(v => ({
-            venue_name: v.name,
-            supplier: v.supplier_id || "—",
-            checkins: 0,
-            opens: 0,
-            saves: 0,
-            status: "Active",
-        }));
+        // Get check-ins in the last 7 days
+        const { data: checkIns } = await supabase
+            .from("attendances")
+            .select("venue_id")
+            .gte("checked_in_at", since);
+
+        // Get event analytics in the last 7 days
+        const { data: analytics } = await supabase
+            .from("event_analytics")
+            .select("event_id, event_opens, saves, event:events(venue_id)")
+            .gte("date", sevenDaysAgo.toISOString().split("T")[0]);
+
+        // Aggregate by venue
+        const venueStats = new Map<string, { checkins: number; opens: number; saves: number }>();
+
+        // Count check-ins
+        (checkIns || []).forEach(c => {
+            if (!c.venue_id) return;
+            const current = venueStats.get(c.venue_id) || { checkins: 0, opens: 0, saves: 0 };
+            current.checkins += 1;
+            venueStats.set(c.venue_id, current);
+        });
+
+        // Add event opens + saves
+        (analytics || []).forEach(a => {
+            const venueId = (a.event as { venue_id?: string })?.venue_id;
+            if (!venueId) return;
+            const current = venueStats.get(venueId) || { checkins: 0, opens: 0, saves: 0 };
+            current.opens += a.event_opens || 0;
+            current.saves += a.saves || 0;
+            venueStats.set(venueId, current);
+        });
+
+        // Build result sorted by check-ins
+        return venues
+            .map(v => {
+                const stats = venueStats.get(v.id) || { checkins: 0, opens: 0, saves: 0 };
+                return {
+                    venue_name: v.name,
+                    supplier: (v.supplier as { business_name?: string })?.business_name || "—",
+                    checkins: stats.checkins,
+                    opens: stats.opens,
+                    saves: stats.saves,
+                    status: "Active",
+                };
+            })
+            .sort((a, b) => b.checkins - a.checkins)
+            .slice(0, 5);
     });
 }
