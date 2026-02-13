@@ -22,7 +22,7 @@ export const MOCK_SUPPLIER: Supplier = {
     user_id: "user-supplier-001",
     business_name: "Rebel Nightclub",
     verification_status: "approved",
-    stripe_connect_id: "acct_mock_stripe_001",
+    stripe_connect_id: "MOCK_acct_000000001",
     plan: "pro",
     contact_email: "manager@rebelnightclub.com",
     phone: "+1 416-555-0199",
@@ -74,7 +74,7 @@ export const MOCK_EVENTS: SupplierEvent[] = [
             "linear-gradient(135deg, #f093fb, #f5576c)",
             "linear-gradient(135deg, #4facfe, #00f2fe)",
         ],
-        checkin_qr_secret: "qr_secret_evt001",
+        checkin_qr_secret: "MOCK_qr_001",
         status: "published",
         tasks_enabled: true,
         rewards_enabled: true,
@@ -106,7 +106,7 @@ export const MOCK_EVENTS: SupplierEvent[] = [
             "linear-gradient(135deg, #ff6b6b, #ee5a24)",
             "linear-gradient(135deg, #fd79a8, #e84393)",
         ],
-        checkin_qr_secret: "qr_secret_evt002",
+        checkin_qr_secret: "MOCK_qr_002",
         status: "published",
         tasks_enabled: true,
         rewards_enabled: true,
@@ -137,7 +137,7 @@ export const MOCK_EVENTS: SupplierEvent[] = [
         gallery_images: [
             "linear-gradient(135deg, #0f0c29, #302b63)",
         ],
-        checkin_qr_secret: "qr_secret_evt003",
+        checkin_qr_secret: "MOCK_qr_003",
         status: "draft",
         tasks_enabled: false,
         rewards_enabled: false,
@@ -168,7 +168,7 @@ export const MOCK_EVENTS: SupplierEvent[] = [
         gallery_images: [
             "linear-gradient(135deg, #f7971e, #ffd200)",
         ],
-        checkin_qr_secret: "qr_secret_evt004",
+        checkin_qr_secret: "MOCK_qr_004",
         status: "ended",
         tasks_enabled: true,
         rewards_enabled: true,
@@ -199,7 +199,7 @@ export const MOCK_EVENTS: SupplierEvent[] = [
         gallery_images: [
             "linear-gradient(135deg, #00b09b, #96c93d)",
         ],
-        checkin_qr_secret: "qr_secret_evt005",
+        checkin_qr_secret: "MOCK_qr_005",
         status: "published",
         tasks_enabled: true,
         rewards_enabled: false,
@@ -375,9 +375,9 @@ export const MOCK_ATTENDANCES: Attendance[] = [
 // ── Ticket Purchases (for door mode) ────────────────────────
 
 export const MOCK_TICKET_PURCHASES: TicketPurchase[] = [
-    { id: "tp-1", user_id: "u1", event_id: "evt-002", ticket_id: "tkt-type-001", ticket_type_name: "General Admission", buyer_name: "Alex Nights", ticket_qr_secret: "tqr_001", status: "valid", purchased_at: fmt(daysAgo(3)) },
-    { id: "tp-2", user_id: "u2", event_id: "evt-002", ticket_id: "tkt-type-002", ticket_type_name: "VIP", buyer_name: "Maya Dance", ticket_qr_secret: "tqr_002", status: "valid", purchased_at: fmt(daysAgo(2)) },
-    { id: "tp-3", user_id: "u3", event_id: "evt-002", ticket_id: "tkt-type-001", ticket_type_name: "General Admission", buyer_name: "Toronto Vibes", ticket_qr_secret: "tqr_003", status: "used", purchased_at: fmt(daysAgo(5)) },
+    { id: "tp-1", user_id: "u1", event_id: "evt-002", ticket_id: "tkt-type-001", ticket_type_name: "General Admission", buyer_name: "Alex Nights", ticket_qr_secret: "MOCK_tqr_001", status: "valid", purchased_at: fmt(daysAgo(3)) },
+    { id: "tp-2", user_id: "u2", event_id: "evt-002", ticket_id: "tkt-type-002", ticket_type_name: "VIP", buyer_name: "Maya Dance", ticket_qr_secret: "MOCK_tqr_002", status: "valid", purchased_at: fmt(daysAgo(2)) },
+    { id: "tp-3", user_id: "u3", event_id: "evt-002", ticket_id: "tkt-type-001", ticket_type_name: "General Admission", buyer_name: "Toronto Vibes", ticket_qr_secret: "MOCK_tqr_003", status: "used", purchased_at: fmt(daysAgo(5)) },
 ];
 
 // ── Computed Stats ──────────────────────────────────────────
